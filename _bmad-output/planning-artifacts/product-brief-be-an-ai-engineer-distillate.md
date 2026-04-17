@@ -14,7 +14,7 @@ Dense context pack for the PRD workflow. Each bullet is self-contained.
 
 - **Product:** Personal AI tool that ingests AI engineering job postings, extracts structured signals via LLM, ranks skills across the corpus, and outputs a weekly skill-gap report for one user (Darko).
 - **Dual purpose:** (a) personal career intelligence for Darko's own job search; (b) public portfolio proof-of-skill for AI engineering interviews.
-- **Thesis:** One project doing triple duty (curriculum + intelligence + proof) beats many shallow tutorial projects. The build *is* the curriculum — every in-demand AI skill gets learned by being used to build the ranker itself.
+- **Thesis:** One project doing triple duty (curriculum + intelligence + proof) beats many shallow tutorial projects. The build _is_ the curriculum — every in-demand AI skill gets learned by being used to build the ranker itself.
 - **MVP duration:** 4 weeks (cut from originally-scoped 6 weeks after skeptic review).
 - **Time budget:** 15–20 hrs/week. Non-negotiable — over-budget weeks steal from sleep + Studio Aalekh (wife's studio).
 - **LLM budget cap:** $30 total for first 4 weeks. Forces caching and batching discipline from Day 1.
@@ -31,25 +31,25 @@ Dense context pack for the PRD workflow. Each bullet is self-contained.
 ## MVP Scope — IN
 
 - **Ingest sources (legally clean, no bot-detection needed):**
-  - Greenhouse public job board API: `GET https://api.greenhouse.io/v1/boards/{company}/jobs?content=true` — stable, no auth
-  - Lever public job board API — every Lever customer has a public endpoint, no auth
-  - Ashby public endpoints — available for customer boards
-  - HN "Who's Hiring" monthly thread parser — *monthly source, not weekly* (brief acknowledges this explicitly)
-  - Seed list: hand-curated ~50 AI-forward companies (Anthropic, OpenAI, Perplexity, Replit, Vercel, LangChain, Cohere, Mistral, Scale, etc.)
+    - Greenhouse public job board API: `GET https://api.greenhouse.io/v1/boards/{company}/jobs?content=true` — stable, no auth
+    - Lever public job board API — every Lever customer has a public endpoint, no auth
+    - Ashby public endpoints — available for customer boards
+    - HN "Who's Hiring" monthly thread parser — _monthly source, not weekly_ (brief acknowledges this explicitly)
+    - Seed list: hand-curated ~50 AI-forward companies (Anthropic, OpenAI, Perplexity, Replit, Vercel, LangChain, Cohere, Mistral, Scale, etc.)
 - **Extraction:** LLM with structured output. Fields: skills, seniority, tech stack, salary band, remote policy, role archetype (LLM App Engineer / AI Product Engineer / Agent Engineer / ML Platform Engineer).
 - **Storage:** Postgres + pgvector on Neon.
-- **LLM provider:** Anthropic Claude, routed via Vercel AI Gateway (provider-agnostic from Day 1, but *pick one and stop tuning in Week 1*).
+- **LLM provider:** Anthropic Claude, routed via Vercel AI Gateway (provider-agnostic from Day 1, but _pick one and stop tuning in Week 1_).
 - **Eval harness:** 20 hand-labeled postings, extraction accuracy measured and published in the write-up. Non-optional — eval is part of the hireability signal.
 - **Ranker:** skill frequency across corpus, skill co-occurrence clusters, salary–stack correlations.
 - **Diff:** compare ranked market against Darko's profile → one weekly skill-gap report.
 - **Output UI:** static public page showing the latest report. No accounts, no dashboards, no settings, no chat.
 - **Public artifact:** GitHub repo public Day 1, honest README, commit history visible throughout build.
 - **Communication loop (parallel, equal priority):**
-  - 5 job applications/week starting Week 1
-  - Voice notes journal
-  - Loom recordings
-  - Weekly LinkedIn build-in-public post
-  - Every interview offered is taken as paid practice
+    - 5 job applications/week starting Week 1
+    - Voice notes journal
+    - Loom recordings
+    - Weekly LinkedIn build-in-public post
+    - Every interview offered is taken as paid practice
 
 ## MVP Scope — OUT (deferred, not "soon")
 
@@ -75,8 +75,8 @@ Dense context pack for the PRD workflow. Each bullet is self-contained.
 
 ## Detailed User Scenarios
 
-- **Scenario 1 — Monday morning skill-gap report:** Darko opens the public URL, sees the top 10 market skills this week, sees his profile fit (e.g., 4/10), sees 3 specific gaps to close *this week*, sees 5 suggested applications with per-company rationale drawn from their actual postings. Acts on all three (learn, apply, post).
-- **Scenario 2 — Per-company interview briefing:** Before an interview with, say, Perplexity, Darko runs the tool against Perplexity's Greenhouse board, gets a fingerprint of their stack, walks into the interview opening with *"I noticed your last 8 AI postings all mention eval harnesses but none mention LangChain. Is that deliberate?"* — instant senior-signal moment.
+- **Scenario 1 — Monday morning skill-gap report:** Darko opens the public URL, sees the top 10 market skills this week, sees his profile fit (e.g., 4/10), sees 3 specific gaps to close _this week_, sees 5 suggested applications with per-company rationale drawn from their actual postings. Acts on all three (learn, apply, post).
+- **Scenario 2 — Per-company interview briefing:** Before an interview with, say, Perplexity, Darko runs the tool against Perplexity's Greenhouse board, gets a fingerprint of their stack, walks into the interview opening with _"I noticed your last 8 AI postings all mention eval harnesses but none mention LangChain. Is that deliberate?"_ — instant senior-signal moment.
 - **Scenario 3 — "Here's my own posting analyzed by my tool"** as an interview demo. Darko asks the interviewer for their company, runs the tool live, walks them through the insights. Makes the interviewer the user. Unforgettable.
 - **Scenario 4 — Cover note generation:** tool diffs a specific job posting against Darko's profile and generates evidence-first application bullets ("Your posting lists X, Y, Z; I built these three things for exactly those") — not adjective-first, not keyword-stuffed.
 - **Scenario 5 — Weekly LinkedIn post:** "Week 3: learned LangGraph by rebuilding the extractor as an agent graph. Here's what broke. Here's the commit." Build-in-public distribution flywheel.
@@ -125,25 +125,25 @@ Salary band across corpus: 50th pct $165k, 75th pct $210k, remote 62%. (Only fro
 ## Kill Criteria (Decision Rules, Not Feelings)
 
 - **End of Week 2:** if corpus <100 postings OR extraction accuracy <70% on 20-sample eval → cut ingest, use CSV of manually-collected postings, spend saved days on ranker + write-up.
-- **End of Week 4:** if MVP not publicly deployed → ship whatever exists *as-is*, write honest "here's what's broken" post, pivot 80% of time to interviewing.
+- **End of Week 4:** if MVP not publicly deployed → ship whatever exists _as-is_, write honest "here's what's broken" post, pivot 80% of time to interviewing.
 - **End of Week 8:** if <2 interviews have happened → tool is no longer the bottleneck. Stop building. Start cold-outreaching AI hiring leads using tool insights as conversation starter.
 - **"Go fight" mode from Week 5:** application cadence doubles from 5/week to 10/week. Feature work slows to a trickle. Tool becomes resume asset, not active project.
 
 ## Competitive Intelligence (from web research, April 2026)
 
 - **Existing job tools are per-job reactive, not aggregate-market:**
-  - Teal — per-job-description keyword match vs. resume (paywalled in Teal+). No market aggregation.
-  - Jobscan — ATS keyword matching, single-job scope.
-  - Careerflow — resume scoring + per-role skill gaps on tracked jobs.
-  - Huntr — Kanban tracker only. No gap analysis.
-  - Simplify / LazyApply / Sonara — autofill/mass-apply. Not intelligence.
+    - Teal — per-job-description keyword match vs. resume (paywalled in Teal+). No market aggregation.
+    - Jobscan — ATS keyword matching, single-job scope.
+    - Careerflow — resume scoring + per-role skill gaps on tracked jobs.
+    - Huntr — Kanban tracker only. No gap analysis.
+    - Simplify / LazyApply / Sonara — autofill/mass-apply. Not intelligence.
 - **Gap Darko can occupy:** "scrape N live postings → LLM-extract → frequency-rank skills across the market → diff against profile." No existing player does this as their core loop. The moat is narrative + execution speed, NOT tech — a competitor could copy in a sprint. Fine, because the goal is getting one person hired, not winning a market.
 - **2026 AI engineering most-in-demand skills (validated across multiple sources):** Python, LangChain/LangGraph, RAG, vector DBs (Pinecone/Weaviate/pgvector), evals, agentic frameworks (LangGraph/CrewAI/AutoGen), deployment.
 - **Hype-fading:** pure "prompt engineering" as a standalone skill is softening — bundled into RAG/agent work.
 - **Salary ranges (directional, blog-aggregator sourced, not primary data):**
-  - US mid (3–5 yrs): ~$154k base. Senior: $250–400k+. GenAI specialists: $150–280k+.
-  - India domestic mid: ₹10–18 LPA. Senior: ₹20–50+ LPA.
-  - India → US/EU remote: $140–180k (~₹1.1–1.5 Cr). **This is Darko's 2–3x target zone.**
+    - US mid (3–5 yrs): ~$154k base. Senior: $250–400k+. GenAI specialists: $150–280k+.
+    - India domestic mid: ₹10–18 LPA. Senior: ₹20–50+ LPA.
+    - India → US/EU remote: $140–180k (~₹1.1–1.5 Cr). **This is Darko's 2–3x target zone.**
 - **Hiring manager behavior 2026:** "2–3 deep, well-documented projects with evals beat 10 shallow ones." Recruiters increasingly ask for GitHub/live demo links before resumes. Production instincts (error handling, evals, deployment, structured outputs) signal harder than novelty.
 - **Backend-to-AI transition:** multiple sources confirm backend devs have a short transition path to AI engineering roles. The corpus Darko builds will empirically measure this — the brief is careful not to cite unsourced numbers.
 
