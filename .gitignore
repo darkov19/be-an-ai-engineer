@@ -34,3 +34,8 @@ Thumbs.db
 npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
+
+# Test caches
+.pytest_cache/
+.vitest/
+.vitest_cache/
