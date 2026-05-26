@@ -1,0 +1,78 @@
+# generated: 2026-05-26T19:38:26+05:30
+# last_updated: 2026-05-26T19:38:26+05:30
+# project: be-an-ai-engineer
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: /home/darko/Code/be-an-ai-engineer/_bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-05-26T19:38:26+05:30
+last_updated: 2026-05-26T19:38:26+05:30
+project: be-an-ai-engineer
+project_key: NOKEY
+tracking_system: file-system
+story_location: /home/darko/Code/be-an-ai-engineer/_bmad-output/implementation-artifacts
+
+development_status:
+  epic-1: backlog
+  1-1-local-monorepo-and-database-scaffold: backlog
+  1-2-console-shell-navigation-and-css-hud-theme-tokens: backlog
+  1-3-candidate-profile-management-and-freshness-monitor: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-multi-source-ingest-parsers-and-database-schema: backlog
+  2-2-fastapi-background-task-service-and-sse-log-stream: backlog
+  2-3-live-log-ingest-dashboard-with-drag-drop-csv-fallback: backlog
+  2-4-scheduled-ingestion-cron-and-diagnostic-alerts: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-llm-structured-extraction-and-proxy-verification: backlog
+  3-2-labeled-eval-set-management-and-accuracy-audits: backlog
+  3-3-interactive-evals-dashboard-and-regression-charts: backlog
+  3-4-kill-criterion-enforcement-and-warning-banner: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-analytical-query-processor-and-geo-segmentation: backlog
+  4-2-volumetric-brain-visualizer-and-ecg-telemetry-chart: backlog
+  4-3-geo-segmented-market-analysis-and-skill-gap-diff: backlog
+  4-4-company-stack-fingerprint-and-interview-screen-share-view: backlog
+  4-5-archive-index-and-social-sharing: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-database-ledger-schema-and-rest-endpoints: backlog
+  5-2-interactive-accountability-ledger-and-git-linker: backlog
+  5-3-visual-alerts-for-overdue-commitments: backlog
+  5-4-public-loop-b-progress-logs: backlog
+  epic-5-retrospective: optional
