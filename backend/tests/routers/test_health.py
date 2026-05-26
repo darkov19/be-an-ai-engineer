@@ -12,6 +12,8 @@ async def test_health_check_healthy(app, client):
     mock_cur.fetchone.return_value = (1,)
     
     # Setup async context managers
+    mock_conn.cursor = MagicMock()
+    mock_conn.cursor.return_value = AsyncMock()
     mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
     mock_pool.connection.return_value.__aenter__.return_value = mock_conn
     
@@ -55,6 +57,8 @@ async def test_health_check_query_error(app, client):
     
     mock_cur.execute.side_effect = psycopg.ProgrammingError("Table does not exist")
     
+    mock_conn.cursor = MagicMock()
+    mock_conn.cursor.return_value = AsyncMock()
     mock_conn.cursor.return_value.__aenter__.return_value = mock_cur
     mock_pool.connection.return_value.__aenter__.return_value = mock_conn
     

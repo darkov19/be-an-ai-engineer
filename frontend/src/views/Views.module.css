@@ -145,6 +145,26 @@
   letter-spacing: 0.1em;
 }
 
+.warningBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: hsla(50, 100%, 50%, 0.05);
+  border: 1px solid hsl(50, 100%, 50%);
+  border-radius: 4px;
+  padding: 16px;
+  color: hsl(50, 100%, 50%);
+  text-shadow: 0 0 8px hsla(50, 100%, 50%, 0.3);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  margin-bottom: 24px;
+}
+
+.dashboardContainer {
+  display: flex;
+  flex-direction: column;
+}
+
 .profileDetails {
   display: flex;
   flex-direction: column;

@@ -24,14 +24,16 @@ async def lifespan(app: FastAPI):
         kwargs={"autocommit": True}
     )
     
+    from backend.db.migrations import run_migrations
     try:
         await pool.open()
         app.state.pool = pool
         logger.info("Database connection pool successfully initialized and opened")
+        await run_migrations(pool)
     except Exception as e:
-        # Pool failed to open — set state to None so downstream None-guards work correctly.
+        # Pool failed to open or migrations failed — set state to None so downstream None-guards work correctly.
         # The health check will return unhealthy; get_db will raise RuntimeError cleanly.
-        logger.error("Failed to open database connection pool on startup", error=str(e))
+        logger.error("Failed to initialize database on startup", error=str(e))
         await pool.close()  # Release any partial resources
         app.state.pool = None
         
@@ -53,6 +55,18 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 import psycopg
 from psycopg_pool import PoolClosed
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled exception occurred", error=str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": True,
+            "code": "INTERNAL_SERVER_ERROR",
+            "detail": "An internal server error occurred."
+        }
+    )
 
 @app.exception_handler(RuntimeError)
 async def runtime_error_handler(request: Request, exc: RuntimeError):
@@ -100,6 +114,27 @@ async def pool_closed_error_handler(request: Request, exc: PoolClosed):
         }
     )
 
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error("Validation error occurred", errors=exc.errors())
+    details = []
+    for err in exc.errors():
+        loc = " -> ".join(str(x) for x in err.get("loc", []))
+        msg = err.get("msg", "invalid value")
+        details.append(f"{loc}: {msg}")
+    detail_str = "; ".join(details)
+    
+    return JSONResponse(
+        status_code=422,
+        content={
+            "error": True,
+            "code": "VALIDATION_ERROR",
+            "detail": detail_str
+        }
+    )
+
 # CORS Security: Restricted strictly to frontend local development port
 app.add_middleware(
     CORSMiddleware,
@@ -109,5 +144,8 @@ app.add_middleware(
     allow_headers=["Content-Type"],
 )
 
+from backend.routers.profiles import router as profiles_router
+
 # Include API endpoints
 app.include_router(health_router, prefix="/api/v1")
+app.include_router(profiles_router, prefix="/api/v1")

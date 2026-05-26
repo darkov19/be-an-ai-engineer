@@ -1,0 +1,146 @@
+.profileForm {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  font-family: var(--font-sans);
+}
+
+.formGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 20px;
+}
+
+@media (min-width: 768px) {
+  .formGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .fullWidth {
+    grid-column: span 2;
+  }
+}
+
+.inputGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.input, .select {
+  background: rgba(10, 10, 12, 0.8);
+  border: 1px solid var(--border-hud);
+  border-radius: 4px;
+  padding: 12px 16px;
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  transition: all 0.3s ease;
+  width: 100%;
+}
+
+.input:focus, .select:focus {
+  outline: none;
+  border-color: var(--glow-cyan);
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.15);
+  background: rgba(15, 23, 30, 0.9);
+}
+
+/* Error state styling */
+.inputError {
+  border-color: var(--glow-magenta) !important;
+  box-shadow: 0 0 10px rgba(255, 0, 110, 0.15) !important;
+}
+
+/* Saving state indicator styling */
+.statusContainer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  margin-top: 4px;
+  min-height: 20px;
+}
+
+.indicatorCompiling {
+  color: var(--glow-purple);
+  animation: pulse 1.2s infinite ease-in-out;
+  font-weight: 700;
+}
+
+.indicatorSaved {
+  color: var(--glow-green);
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+.indicatorError {
+  color: var(--glow-magenta);
+  font-weight: 700;
+  text-shadow: 0 0 8px rgba(255, 0, 110, 0.4);
+}
+
+.metaGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.metaCard {
+  background: rgba(15, 15, 20, 0.5);
+  border: 1px solid var(--border-hud);
+  border-radius: 4px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.metaRow {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px dashed rgba(180, 100, 200, 0.2);
+  padding-bottom: 8px;
+  font-size: 0.875rem;
+}
+
+.metaRow:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.metaLabel {
+  color: var(--text-secondary);
+}
+
+.metaValue {
+  font-family: var(--font-mono);
+  color: var(--glow-cyan);
+  font-weight: 700;
+}
+
+.helpText {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 0.6;
+    transform: scale(0.98);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
