@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Viral Shastri — Resume</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: "Times New Roman", Times, serif;
+                font-size: 11pt;
+                line-height: 1.3;
+                color: #000;
+                background: #fff;
+            }
+
+            .page {
+                width: 8.5in;
+                margin: 0 auto;
+                padding: 0.35in 0.45in 0.38in 0.45in;
+            }
+
+            /* ---- HEADER ---- */
+            .header {
+                text-align: center;
+                margin-bottom: 5px;
+            }
+
+            .header h1 {
+                font-size: 24pt;
+                font-weight: bold;
+                letter-spacing: 0.5px;
+                margin-bottom: 4px;
+                font-variant: small-caps;
+            }
+
+            .header .contact {
+                font-size: 10pt;
+                color: #000;
+            }
+
+            .header .contact a {
+                color: #000;
+                text-decoration: underline;
+            }
+
+            .header .contact span {
+                margin: 0 4px;
+                color: #555;
+            }
+
+            /* ---- SECTIONS ---- */
+            section {
+                margin-bottom: 5px;
+            }
+
+            section h2 {
+                font-size: 11pt;
+                font-variant: small-caps;
+                font-weight: bold;
+                letter-spacing: 0.5px;
+                text-transform: uppercase;
+                border-bottom: 1px solid #000;
+                padding-bottom: 1px;
+                margin-bottom: 5px;
+                margin-top: 7px;
+            }
+
+            /* ---- SUMMARY ---- */
+            .summary p {
+                font-size: 10.5pt;
+                line-height: 1.38;
+            }
+
+            /* ---- SKILLS ---- */
+            .skills-table {
+                width: 100%;
+                font-size: 10.5pt;
+                line-height: 1.4;
+            }
+
+            .skills-table td.label {
+                font-weight: bold;
+                white-space: nowrap;
+                padding-right: 4px;
+                vertical-align: top;
+                width: 1%;
+            }
+
+            .skills-table td.value {
+                vertical-align: top;
+            }
+
+            /* ---- EXPERIENCE ---- */
+            .job {
+                margin-bottom: 6px;
+            }
+
+            .job-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                margin-bottom: 0px;
+            }
+
+            .job-header .company {
+                font-weight: bold;
+                font-size: 11pt;
+            }
+
+            .job-header .location {
+                font-size: 10.5pt;
+                color: #000;
+            }
+
+            .job-subheader {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+                margin-bottom: 1px;
+            }
+
+            .job-subheader .title {
+                font-style: italic;
+                font-size: 10.5pt;
+            }
+
+            .job-subheader .dates {
+                font-style: italic;
+                font-size: 10.5pt;
+                color: #000;
+            }
+
+            .job ul {
+                padding-left: 14px;
+                margin-top: 2px;
+            }
+
+            .job ul li {
+                font-size: 10.5pt;
+                line-height: 1.36;
+                margin-bottom: 2px;
+                list-style-type: disc;
+            }
+
+            /* ---- EDUCATION ---- */
+            .edu-entry {
+                margin-bottom: 3px;
+            }
+
+            .edu-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: baseline;
+            }
+
+            .edu-header .degree {
+                font-weight: bold;
+                font-size: 11pt;
+            }
+
+            .edu-header .year {
+                font-size: 10.5pt;
+                font-style: italic;
+            }
+
+            .edu-sub {
+                display: flex;
+                justify-content: space-between;
+                font-size: 10.5pt;
+                font-style: italic;
+                color: #000;
+            }
+
+            /* ---- PRINT ---- */
+            @media print {
+                html, body {
+                    margin: 0;
+                    padding: 0;
+                    background: #fff;
+                }
+                .page {
+                    margin: 0;
+                    padding: 0.35in 0.45in 0.38in 0.45in;
+                    width: 100%;
+                }
+                section:last-child {
+                    margin-bottom: 0;
+                }
+                .edu-entry:last-child {
+                    margin-bottom: 0;
+                }
+                a {
+                    color: #000;
+                }
+            }
+
+            @page {
+                size: letter;
+                margin: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="page">
+            <!-- HEADER -->
+            <div class="header">
+                <h1>Viral Shastri</h1>
+                <div class="contact">
+                    +91 84692 23098
+                    <span>|</span>
+                    <a href="mailto:shastriv19@gmail.com"
+                        >shastriv19@gmail.com</a
+                    >
+                    <span>|</span>
+                    <a href="https://linkedin.com/in/viralshastri19"
+                        >linkedin.com/in/viralshastri19</a
+                    >
+                    <span>|</span>
+                    Surat, India
+                    <span>|</span>
+                    <a href="https://github.com/darkov19">github.com/darkov19</a>
+                </div>
+            </div>
+
+            <!-- SUMMARY -->
+            <section class="summary">
+                <h2>Summary</h2>
+                <p>
+                    Fullstack engineer with 4.5 years shipping production
+                    systems end-to-end across Python and TypeScript. Built
+                    Hyper-Y at AVRL: a Python/Flask freight pricing engine
+                    on GCP processing <strong>100+ requests/sec</strong>
+                    across <strong>8 enterprise TMS (Transportation
+                    Management System) integrations</strong>. Tech-led
+                    <strong>3eco Systems</strong> (Series A, $17M)
+                    across their Node.js/Express backend, MongoDB, web (React),
+                    and Flutter mobile app. Frontend across React, Next.js,
+                    and Angular.
+                </p>
+            </section>
+
+            <!-- SKILLS -->
+            <section>
+                <h2>Technical Skills</h2>
+                <table class="skills-table">
+                    <tr>
+                        <td class="label">Languages:</td>
+                        <td class="value">Python, JavaScript, Node.js, TypeScript</td>
+                    </tr>
+                    <tr>
+                        <td class="label">Backend:</td>
+                        <td class="value">
+                            Flask, FastAPI, Express.js, REST APIs, Event-Driven (Cloud Tasks + GAE Workers)
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="label">Databases:</td>
+                        <td class="value">
+                            PostgreSQL, MongoDB, Redis
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="label">Cloud &amp; DevOps:</td>
+                        <td class="value">
+                            GCP, Google App Engine, Google Cloud Storage, Cloud Run, Docker, GitHub Actions, CI/CD
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="label">Frontend:</td>
+                        <td class="value">
+                            React.js, Next.js, Angular (familiar), HTML, CSS
+                        </td>
+                    </tr>
+                </table>
+            </section>
+
+            <!-- EXPERIENCE -->
+            <section>
+                <h2>Experience</h2>
+
+                <!-- Job 1 -->
+                <div class="job">
+                    <div class="job-header">
+                        <span class="company">AVRL</span>
+                        <span class="location"
+                            >Austin, Texas, USA (Remote)</span
+                        >
+                    </div>
+                    <div class="job-subheader">
+                        <span class="title"
+                            >Senior SDE - Hyper-Y</span
+                        >
+                        <span class="dates">Jan 2024 - Present</span>
+                    </div>
+                    <ul>
+                        <li>
+                            Designed and built Hyper-Y from scratch
+                            (reporting directly to CTO): a freight pricing
+                            engine processing
+                            <strong>100+ requests/sec</strong> across
+                            <strong>8 enterprise TMS integrations</strong>
+                            (BlueYonder, MercuryGate, Navisphere, UberFreight,
+                            E2Open) on GCP with Redis caching and PostgreSQL.
+                        </li>
+                        <li>
+                            Architected a multi-stage event-driven pipeline
+                            covering bid eligibility evaluation, dynamic
+                            rate calculation, and rate adjustments; configuration-driven
+                            design enabled rule changes across <strong>10+ carrier
+                            setups</strong> without modifying the codebase or
+                            triggering a deployment.
+                        </li>
+                        <li>
+                            Deployed on Google App Engine with
+                            Docker-based builds and GitHub Actions CI/CD; built
+                            the auth service and a structured logging pipeline
+                            capturing all bid decisions to Firestore.
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Job 2 -->
+                <div class="job">
+                    <div class="job-header">
+                        <span class="company">AVRL</span>
+                        <span class="location"
+                            >Austin, Texas, USA (Remote)</span
+                        >
+                    </div>
+                    <div class="job-subheader">
+                        <span class="title">RPA Automation Engineer</span>
+                        <span class="dates">Nov 2021 - Dec 2023</span>
+                    </div>
+                    <ul>
+                        <li>
+                            Engineered 100+ RPA bots deployed on customer-dedicated
+                            VMs via AVRL FIT (Electron app), automating
+                            end-to-end carrier bidding across
+                            <strong>20 TMS platforms</strong>: bots parsed TMS
+                            interfaces, extracted shipment data, routed it
+                            through AVRL&rsquo;s pricing APIs, and placed
+                            bids autonomously, processing
+                            <strong>1,000+ loads per customer per day</strong>.
+                        </li>
+                        <li>
+                            Reduced per-bid processing time from
+                            <strong>15 minutes (manual) to under 30 seconds</strong>;
+                            owned the team&rsquo;s most complex, highest-volume TMS
+                            integrations.
+                        </li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- ADDITIONAL EXPERIENCE -->
+            <section>
+                <h2>Additional Experience</h2>
+                <div class="job">
+                    <div class="job-header">
+                        <span class="company">Freelance / Contract</span>
+                        <span class="location">Upwork &middot; 3eco Systems (Remote)</span>
+                    </div>
+                    <div class="job-subheader">
+                        <span class="title">Lead Full-Stack Developer</span>
+                    </div>
+                    <ul>
+                        <li>Led development of an Instagram analytics SaaS (Next.js, TypeScript, Supabase, Inngest) for a US client; system tracks accounts with <strong>up to 1M followers</strong> across <strong>1,000 active users</strong>.</li>
+                        <li>Tech lead for <strong>3eco Systems</strong> (Series A, $17M, EV last-mile logistics serving Amazon, Flipkart, and BigBasket); led engineering across their Node.js/Express backend, MongoDB, web frontend, and Flutter mobile app.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- PROJECTS -->
+            <section>
+                <h2>Projects</h2>
+                <div class="job">
+                    <div class="job-header">
+                        <span class="company">business-os</span>
+                        <span class="location"><a href="https://www.npmjs.com/package/business-os">npmjs.com/package/business-os</a></span>
+                    </div>
+                    <div class="job-subheader">
+                        <span class="title">Published npm CLI - Node.js, AI Agent Workflows</span>
+                        <span class="dates">2026</span>
+                    </div>
+                    <ul>
+                        <li>Built and published a Node.js CLI to npm that scaffolds reusable workflow files for AI coding agents (Claude Code, Codex); interactive installer supports dynamic profile selection (SaaS, D2C, partner rollout) and post-install <code>doctor</code>/<code>update</code> lifecycle commands.</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- EDUCATION -->
+            <section>
+                <h2>Education</h2>
+
+                <div class="edu-entry">
+                    <div class="edu-header">
+                        <span class="degree"
+                            >Master of Computer Applications (MCA)</span
+                        >
+                        <span class="year">2022</span>
+                    </div>
+                    <div class="edu-sub">
+                        <span>MIT World Peace University, Pune, India</span>
+                        <span>GPA: 9.6/10.0</span>
+                    </div>
+                </div>
+
+            </section>
+        </div>
+    </body>
+</html>

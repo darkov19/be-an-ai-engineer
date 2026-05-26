@@ -31,7 +31,7 @@ carryForward:
 
 ## Executive Summary
 
-**Job Intelligence Agent** is a single-user Python tool that ingests AI engineering job postings from public ATS APIs, LLM-extracts structured signals (skills, seniority, stack, salary, remote policy, role archetype), ranks those signals across the corpus, diffs against the user's profile, and publishes a weekly skill-gap report to a static public URL. The build is dual-purpose by design: it is simultaneously the user's AI-engineering curriculum (every in-demand 2026 AI skill is learned by being used to construct the ranker), the user's weekly market intelligence feed, and the user's proof-of-skill portfolio artifact. One project, three jobs, four-week MVP.
+**Job Intelligence Agent** is a single-user full-stack application (React SPA + FastAPI backend + local Postgres DB) that ingests AI engineering job postings from public ATS APIs, LLM-extracts structured signals (skills, seniority, stack, salary, remote policy, role archetype), ranks those signals across the corpus, diffs against the user's profile, and publishes a weekly skill-gap report to a public Vercel URL. The build is dual-purpose by design: it is simultaneously the user's AI-engineering curriculum (every in-demand 2026 AI skill is learned by being used to construct the ranker), the user's weekly market intelligence feed, and the user's proof-of-skill portfolio artifact. One project, three jobs, four-week MVP.
 
 **Primary user:** one developer (Darko), weekly use. **Secondary audience:** AI hiring managers interviewing the author — they never run the tool; they *encounter* its artifacts (public repo, live URL, LinkedIn thread, and the highest-leverage interview demo of running the tool live against the interviewer's own job board). **Tertiary, post-MVP only:** other backend-to-AI transitioners.
 
@@ -42,7 +42,7 @@ carryForward:
 
 **The problem solved** is not *find me a job* — it is **market opacity for self-directed learners**. The AI engineering market is fragmented across half a dozen role archetypes with different stacks. Existing consumer job-search tools (Teal, Jobscan, Huntr, Careerflow) operate per-job-description reactively; none rank skills aggregately across the live market. Enterprise labor-market intelligence products (Lightcast, JobsPikr, LinkedIn Economic Graph, Coursera Skills Report 2026) do rank aggregately but are priced for corporate buyers and do not slice specifically to AI engineering as a personal artifact. This product fills the gap between those two layers — and uses its own output to drive the user's weekly learning, interviewing, and build-in-public cadence.
 
-**MVP timeline:** 4 weeks. **LLM budget cap:** $30 total. **Weekly time budget:** 15–20 hours. **Repo:** public from Day 1. **Success = a credible offer conversation within 16 weeks** at +50% over current base minimum, daytime hours, non-toxic team. The tool is explicitly subordinate to that outcome and is killed or frozen per the brief's Week 2 / Week 4 / Week 8 decision rules if it becomes the bottleneck instead of the accelerant.
+**MVP timeline:** 4 weeks. **LLM budget:** Zero-cost (via local Hermes proxy connection health checks). **Weekly time budget:** 15–20 hours. **Repo:** public from Day 1. **Success = a credible offer conversation within 16 weeks** at +50% over current base minimum, daytime hours, non-toxic team. The tool is explicitly subordinate to that outcome and is killed or frozen per the brief's Week 2 / Week 4 / Week 8 decision rules if it becomes the bottleneck instead of the accelerant.
 
 ### What Makes This Special
 
@@ -56,7 +56,7 @@ carryForward:
 
 **5. Dual-loop execution is a first-class product requirement, not a process note.** Loop A (Build) and Loop B (Interview + Communicate) run simultaneously from Day 1. The PRD treats **"5 applications per week, first voice note recorded, first LinkedIn post live by end of Week 1"** as binding requirements with the same weight as ingest pipeline functionality. The brief names *"planning eats execution"* as the #1 project risk and codifies that risk into kill criteria at Weeks 2 / 4 / 8. **A build milestone that ships without its corresponding interview-loop milestone has failed its specification.**
 
-**6. Cost discipline as a named differentiator.** The $30 / 4-week LLM budget cap is not a footnote — it forces prompt caching, batching, provider abstraction via Vercel AI Gateway, and corpus scoping from Day 1. Production instincts (cost awareness, cache discipline, batching) are baked into the project by budget constraint rather than by preaching. This is exactly the signal AI hiring managers in 2026 are filtering for: the brief's research confirms *"production instincts (error handling, evals, deployment, structured outputs, cost awareness) signal harder than novelty."*
+**6. Operational discipline as a named differentiator.** The reliance on a zero-cost local Hermes proxy tunneling through the developer's Codex subscription replaces standard API spend. This shifts the engineering focus from cloud billing to proxy connection health, local prompt optimization, and robustness against connection drops. Production instincts (handling rate limits, proxy disconnects, and validating JSON schemas) are baked in by local resource constraints. This is exactly the signal AI hiring managers in 2026 are filtering for: the brief's research confirms *"production instincts (error handling, evals, deployment, structured outputs, connection health) signal harder than novelty."*
 
 **7. Ingest discipline is a soft rule, not a dogma.** Sources are chosen on a **free-public-API-first rule**: if a source offers a documented unauthenticated endpoint, it is in core ingest; if it requires scraping, it is out of MVP-core but eligible for a time-boxed spike (with a documented decision rule — e.g., the Week-2 JobSpy spike targeting LinkedIn/Indeed) where the marginal signal justifies the reliability and ToS-exposure cost. The governing criterion is not *"public vs. scraped"* — it is *"marginal unique signal ÷ (maintenance cost + ToS exposure + budget burn)."* This framing is defensible in an interview: a reviewer asking *"why didn't you just use JobSpy?"* gets a crisp answer — *"I ran the spike. Here's what it showed. Here's why I kept / dropped it."*
 
@@ -64,7 +64,7 @@ carryForward:
 
 | Field | Value |
 |---|---|
-| **Project Type** | Web app (Python batch pipeline + static public HTML report page) |
+| **Project Type** | Local full-stack app (React SPA + FastAPI + Postgres) + public static report (Vercel) |
 | **Domain** | General — career / job-market intelligence. No regulatory or compliance surface. |
 | **Complexity** | Medium. Domain complexity is low; technical complexity is medium (LLM structured extraction, pgvector retrieval, cost-capped batching, evals harness, dual-loop execution as a product constraint). |
 | **Project Context** | Greenfield. No existing codebase. Public GitHub repository from Day 1. |
@@ -101,7 +101,7 @@ The project also has an independent success criterion: **it must function as a c
 |---|---|---|---|
 | **Corpus size (AI engineering postings)** | ≥200 by end of Week 2 across ingest sources | <100 by end of Week 2 → pivot to manual CSV, ingest frozen | Row count in Postgres |
 | **Extraction accuracy on 20-sample eval** | ≥70% on labeled fields (skills, seniority, stack, salary band, remote policy, role archetype) | <70% by end of Week 2 → cut ingest scope, refocus on ranker + write-up | Eval harness run, results committed to repo |
-| **LLM spend (total, 4-week MVP)** | ≤$30 | Hard cap — ingest frozen if exceeded | Vercel AI Gateway spend dashboard |
+| **Hermes Proxy Connection** | Verified Active | Hard abort if connection fails | Run health logs (`HermesProxyConnectionError`) |
 | **MVP deployment** | Public URL live, weekly report visible to unauthenticated visitor | Not deployed by end of Week 4 → ship as-is, pivot 80% to interview loop | External URL health check |
 | **Report generation automation** | Weekly report runs without manual intervention by end of Week 4 | Manual-only beyond Week 4 | Cron / scheduled workflow run logs |
 | **Public repo visibility** | Day 1, honest README, commit history visible | Non-negotiable | GitHub visibility check |
@@ -129,7 +129,7 @@ The project also has an independent success criterion: **it must function as a c
 - 5 applications filed by end of Week 1 → verifiable by application tracker (spreadsheet or Huntr).
 - Corpus ≥200 AI engineering postings by end of Week 2 → verifiable by Postgres row count.
 - Extraction accuracy ≥70% on 20-sample eval by end of Week 2 → verifiable by eval harness output in repo.
-- LLM spend ≤$30 by end of Week 4 → verifiable by Vercel AI Gateway dashboard.
+- Active local Hermes proxy connection health verified → verifiable by run health logs.
 - Public URL live by end of Week 4 → verifiable by external health check.
 - Public write-up posted by end of Week 4 → verifiable by LinkedIn + personal blog URL.
 - Weekly report geo-segmented by end of Week 4 → verifiable by HTML structure.
@@ -161,8 +161,8 @@ The project also has an independent success criterion: **it must function as a c
   - ~20 US/EU AI-forward companies (Anthropic, OpenAI, Perplexity, Vercel, LangChain, Cohere, Mistral, Scale, Replit, Hugging Face, etc.)
   - ~15 India-based AI product companies and foreign AI captive centers in India (derived from Week 0 empirical spike)
   - ~15 early-stage (pre-seed, seed, YC-batch) AI startups to prevent enterprise-skill overweighting bias
-- **Extraction:** Claude (via Vercel AI Gateway) with structured output — skills, seniority, tech stack, salary band, remote policy, role archetype (LLM App Engineer / AI Product Engineer / Agent Engineer / ML Platform Engineer).
-- **Storage:** Neon Postgres + pgvector.
+- **Extraction:** Claude (via local Hermes proxy) with structured output — skills, seniority, tech stack, salary band, remote policy, role archetype (LLM App Engineer / AI Product Engineer / Agent Engineer / ML Platform Engineer).
+- **Storage:** Local Postgres 16 (via Docker Compose) + pgvector.
 - **Eval harness:** 20 hand-labeled postings. Accuracy measured and committed to repo. **Framed as primary craft-signal surface of the project.**
 - **Ranker:** skill frequency aggregation, skill co-occurrence clusters, salary–stack correlations.
 - **Diff:** ranked market vs. user profile → skill-gap report.
@@ -176,7 +176,7 @@ The project also has an independent success criterion: **it must function as a c
 - `pip install python-jobspy`. Run one LinkedIn query + one Indeed query for AI / LLM Engineer roles, limit 50 postings each, single IP, no proxies.
 - Measure: unique-posting yield vs. existing ATS corpus, dedup rate, whether LinkedIn rate-limits on first run.
 - **Decision rule:**
-  - **≥30% unique postings + no immediate rate limit** → include JobSpy as a Week 3 secondary ingest source with reliability disclaimer. Budget ≤20% of remaining LLM spend for the extra postings.
+  - **≥30% unique postings + no immediate rate limit** → include JobSpy as a Week 3 secondary ingest source with reliability disclaimer. Ensure proxy connection throughput supports processing extra postings without disconnects.
   - **<30% unique OR immediate rate-limit OR proxy required** → defer permanently. Document spike result in repo README.
 - Either outcome is published as part of the write-up — the documented decision itself is a craft-signal artifact.
 
@@ -292,12 +292,12 @@ These are **not MVP scope** and must not leak into Weeks 1–4.
 
 ### Journey 4a — The Resume Reviewer *(async, reactive, 90-second budget)*
 
-**Prequel beat — the keyword filter.** A non-technical recruiter at a target AI company runs an ATS keyword filter over the resume stack. Darko's resume passes the filter because the top 3 bullets contain every high-signal term: *"Built LLM structured-output extraction pipeline on 500+ live AI engineering job postings, with pgvector retrieval, 20-sample held-out eval harness (10 train / 10 held-out, per-field precision/recall), and a $30 LLM-budget-capped cost profile documented in public write-up."* Every term is an ATS keyword; every term is evidence-backed and hyperlinkable to the repo. **The resume does the first round of hiring-manager-encounter work before the tool ever loads.** Without this, nothing downstream in Journey 4a fires — see **Resume Prerequisite** below.
+**Prequel beat — the keyword filter.** A non-technical recruiter at a target AI company runs an ATS keyword filter over the resume stack. Darko's resume passes the filter because the top 3 bullets contain every high-signal term: *"Built LLM structured-output extraction pipeline on 500+ live AI engineering job postings, with pgvector retrieval, 20-sample held-out eval harness (10 train / 10 held-out, per-field precision/recall), and a zero-cost local LLM proxy setup documented in public write-up."* Every term is an ATS keyword; every term is evidence-backed and hyperlinkable to the repo. **The resume does the first round of hiring-manager-encounter work before the tool ever loads.** Without this, nothing downstream in Journey 4a fires — see **Resume Prerequisite** below.
 
 **Opening (the real scene).** 10:47 PM Thursday. A staff AI engineer at a target company is screening resumes. She has 30 candidates left in a stack of 80. Her default is reject. She has 90 seconds per candidate. Darko's resume is one of them.
 
 **Rising action (stopwatch — everything fits in 90 seconds).** 
-- **Seconds 0–15:** She clicks the GitHub link. README loads. First 3 sentences: *"This tool ingests AI engineering job postings from 8 public ATS APIs and ranks skills across the corpus. Eval accuracy: 73% on a held-out set of 10 samples with per-field precision/recall documented in `docs/eval-methodology.md`. Built under a hard $30 LLM spend cap across 4 weeks — spend breakdown in `docs/budget.md`."* **Every sentence contains an empirical differentiator a tutorial project would not have.**
+- **Seconds 0–15:** She clicks the GitHub link. README loads. First 3 sentences: *"This tool ingests AI engineering job postings from 8 public ATS APIs and ranks skills across the corpus. Eval accuracy: 73% on a held-out set of 10 samples with per-field precision/recall documented in `docs/eval-methodology.md`. Built using a zero-cost local Hermes proxy connection — setup instructions in `docs/hermes-setup.md`."* **Every sentence contains an empirical differentiator a tutorial project would not have.**
 - **Seconds 15–40:** She clicks the live URL. It loads — uptime has been maintained at 99.2% across Weeks 4–16 via Vercel health check + alerting. The Saturday report renders. She scans the two columns and the accountability ledger block.
 - **Seconds 40–70:** She scrolls two commit messages. `feat: week-2 kill criterion fired — corpus below threshold, pivoted to CSV fallback per PRD` and `chore: eval accuracy 73% on held-out set, methodology doc committed`. She opens the `docs/eval-methodology.md` file. Three paragraphs explain the train/held-out split, the per-field metrics, the failure cases. She notes that the failure-cases section names 3 specific extractions that went wrong and *why* — annotated.
 - **Seconds 70–90:** She opens `loop-b-log.md`. Weekly rows: applications filed, interviews completed, non-frozen interviews, LinkedIn posts. 16 weeks of rows. The file is updated weekly and committed like code. She closes the laptop.
@@ -313,7 +313,7 @@ These are **not MVP scope** and must not leak into Weeks 1–4.
 - **URL uptime ≥99% during Weeks 4–16** + Vercel health check + alert integration — **MVP requirement, not Growth**
 - **`docs/eval-methodology.md`** — explicit, committed, read by reviewer
 - **Upgraded eval harness** — 10 train / 10 held-out split, per-field precision/recall for 6 fields, regression flag, documented failure cases annotated
-- **`docs/budget.md`** — breakdown of $30 spend by ingest / eval / report, with 2–3 decisions the cap forced
+- **`docs/hermes-setup.md`** — local Hermes proxy configuration guide detailing connection settings and setup rules
 - **`loop-b-log.md`** as MVP deliverable — weekly-updated public log of applications filed, interviews, non-frozen interviews, LinkedIn posts, voice notes. **This is the concrete rebuttal to the Red Team attack "you built a tool instead of getting a job."**
 - Commit message discipline (legibility as a product property)
 - Archived past-reports index page (visible trajectory, not one snapshot)
@@ -395,7 +395,7 @@ Concrete implication: the Week 0 pre-code spike must include a **resume-bullet r
 | 27 | **URL uptime ≥99% during Weeks 4–16** + Vercel health check + alert | J4a | **MVP** | Moved from "nice to have" → binding |
 | 28 | **`docs/eval-methodology.md`** — explicit committed methodology doc | J4a | **MVP** | Craft-signal surface per Red Team |
 | 29 | **Upgraded eval harness spec**: 10 train / 10 held-out split, per-field precision/recall (6 fields), regression flag, annotated failure cases | J4a | **MVP** | Upgraded from naive accuracy-only after Red Team Attack #2 |
-| 30 | **`docs/budget.md`** — $30 spend breakdown + 2–3 decisions the cap forced | J4a | **MVP** | Reframes $30 from "poverty cosplay" to "constraint in experiment" |
+| 30 | **`docs/hermes-setup.md`** — local Hermes proxy configuration guide | J4a | **MVP** | Documents local-first proxy setup and connection configurations |
 | 31 | **`loop-b-log.md`** — weekly-updated public log of applications, interviews, non-frozen interviews, posts, voice notes | J4a | **MVP** | Concrete rebuttal to "procrastination with commit history" attack |
 | 32 | Commit message discipline (legibility as a product property) | J4a | **MVP** | |
 | 33 | **Anti-tutorial-project signal requirement** — first 3 README sentences must contain empirical differentiators a tutorial would not have | J4a | **MVP** | |
@@ -412,16 +412,16 @@ Concrete implication: the Week 0 pre-code spike must include a **resume-bullet r
 
 ### Project-Type Overview
 
-This product is classified as a `web_app` but deviates from the standard single-page or multi-page app pattern in a meaningful way: **the frontend is static HTML generated by a Python batch pipeline**, not a live server-rendered or client-rendered application. There is no JavaScript framework, no API layer the browser calls, and no authentication surface. The "web app" is the output artifact — a read-only HTML page that the cron job writes to Vercel-hosted storage once per week.
+This product is classified as a hybrid `web_app`: it consists of a local workspace console (Vite + React TS SPA frontend with Uvicorn + FastAPI backend and a local Postgres 16 DB with pgvector in Docker) to trigger ingestion, manage profiles, stream live logs via SSE, run evaluations, and update the accountability ledger, plus a public-facing static report compiled from the database and deployed to a public Vercel URL for portfolio access.
 
 Key answers to the web_app template questions:
 
 | Question | Answer |
 |---|---|
-| **SPA or MPA?** | Neither — static HTML generated by Python (Jinja2 or f-strings). One index.html + one archive.html. |
+| **SPA or MPA?** | Hybrid — Local React SPA dashboard for the control center, generating static HTML reports for public portfolio hosting. |
 | **Browser support** | Modern browsers only (Chrome, Firefox, Safari — last 2 major versions). No IE, no polyfills. |
 | **SEO** | Not applicable. No public discovery surface. Skipped per `skip_sections` config. |
-| **Real-time data** | No. Weekly batch output — no websockets, no live polling. |
+| **Real-time data** | Yes (locally). Live logging streams via Server-Sent Events (SSE) from the FastAPI backend to the React console. |
 | **Accessibility** | Basic WCAG 2.1 Level A. Contrast ratios on the report color-coding. Screen-reader-safe. |
 | **Responsive design** | Three surfaces: desktop dashboard (primary), mobile scroll (LinkedIn screenshot source), Zoom screen-share (legible at 1080p with half-screen share). |
 
@@ -442,31 +442,31 @@ This section documents the full technical stack discovered across all previous P
 
 #### 1. Python Ingest Pipeline
 
-- **Runtime:** Python 3.12+, structured as a monorepo with clearly separated modules: `ingest/`, `extract/`, `rank/`, `diff/`, `report/`, `eval/`, `notify/`.
+- **Runtime:** Python 3.11+, backend structured as a FastAPI service with routers and modular parsing adapters in `backend/services/parser.py`.
 - **Source adapters:** 8 source adapters, each parameterized by company slug (not hardcoded seed list): Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, YC WaaS, HN thread parser.
 - **Key constraint:** adapters must accept a company slug parameter so that on-demand single-company ingest (for the live interview demo) works without a different code path.
-- **Cron schedule:** Saturday morning IST (Friday evening UTC/US time) via GitHub Actions.
-- **Run logging:** per-run corpus size, per-source count, LLM spend, and eval accuracy committed to the repo as a JSON artifact — auditable, not just dashboard-visible.
+- **Cron schedule:** Saturday morning IST (Friday evening UTC/US time) via APScheduler 4 in-process on the FastAPI backend.
+- **Run logging:** per-run corpus size, per-source count, extraction latency, and eval accuracy committed to the repo as a JSON artifact — auditable, not just dashboard-visible.
 
 #### 2. LLM Extraction Layer
 
-- **Provider:** Claude (claude-haiku-4-5 for cost-efficiency, fallback to claude-sonnet-4-6 for edge cases) accessed via **Vercel AI Gateway** — single endpoint, spend tracking, model abstraction layer.
-- **Structured output:** JSON schema with 6 target fields: `skills` (list), `seniority` (enum), `tech_stack` (list), `salary_band` (dict with currency + range), `remote_policy` (enum), `role_archetype` (enum: LLM App Engineer / AI Product Engineer / Agent Engineer / ML Platform Engineer).
+- **Provider:** Claude (claude-haiku-4-5 for cost-efficiency, fallback to claude-sonnet-4-6 for edge cases) accessed via **local Hermes proxy** — tunnel via active browser session.
+- **Structured output:** JSON schema with 6 target fields: `skills` (list), `seniority` (enum), `tech_stack` (list), `salary_band` (dict with currency + range), `remote_policy` (enum), `role_archetype` (enum: LLM App Engineer / AI Product Engineer / Agent Engineer / ML Platform Engineer) validated using Pydantic in `backend/llm/schemas.py`.
 - **Batching:** 20 postings per LLM call. Prompt includes batch of 20 posting texts, returns array of 20 structured objects.
-- **Caching:** prompt-level caching via Vercel AI Gateway. Postings seen in a prior run are not re-extracted — Postgres `extracted_at` timestamp is the cache key.
-- **Budget enforcement:** total spend tracked against $30 hard cap. If spend ≥ $28 (buffer), ingest is frozen and an alert email fires before the cron runs the next batch.
+- **Caching:** Postings seen in a prior run are not re-extracted — Postgres `extracted_at` timestamp is the cache key.
+- **Connection verification:** active Hermes proxy connection health check. If the local Hermes proxy connection is unresponsive, the pipeline aborts the batch run, logs the connection error, and raises a custom `HermesProxyConnectionError`.
 - **Extraction configuration:** all prompts versioned in `prompts/` directory. Prompt version recorded with each posting row in Postgres — enables before/after eval comparison when prompts change.
 
-#### 3. Storage — Neon Postgres + pgvector
+#### 3. Storage — Local Postgres + pgvector
 
 - **Schema (minimum viable):**
   - `postings(id, company_slug, ats_source, posting_text, extracted_at, prompt_version, skills jsonb, seniority text, tech_stack jsonb, salary_band jsonb, remote_policy text, role_archetype text, geo_segment text)`
-  - `weekly_reports(id, run_date, corpus_size, per_source_counts jsonb, eval_accuracy float, llm_spend_usd float, report_html text, geo_us_eu jsonb, geo_india jsonb)`
+  - `weekly_reports(id, run_date, corpus_size, per_source_counts jsonb, eval_accuracy float, extraction_latency_ms integer, report_html text, geo_us_eu jsonb, geo_india jsonb)`
   - `profile(id, updated_at, skills jsonb, experience_bullets text, seniority_self_assessed text)`
   - `accountability_log(id, week_date, commitments jsonb, actions jsonb, gap_flags jsonb)`
   - `eval_samples(id, posting_id, label_set text, labeled_at, fields jsonb, is_train bool)`
 - **pgvector:** `postings.embedding vector(1536)` — enables semantic skill clustering and profile semantic diff (Growth feature; column added in MVP migration, populated in Growth).
-- **Connection:** Neon serverless driver. No persistent connection pool needed for weekly batch.
+- **Connection:** Local Postgres 16 (via Docker Compose) using `psycopg` connection pool. Persistent pool managed by FastAPI lifespan events.
 
 #### 4. Eval Harness
 
@@ -509,15 +509,15 @@ This section documents the full technical stack discovered across all previous P
   - One-click demo close button (visible when accessed from a specific URL parameter — `?demo=true`)
 - **Archive page (`/archive`):** one row per week, date + corpus size + accuracy + commit link. Human-readable longitudinal history.
 - **Static screenshot export:** a shareable OpenGraph image (`og:image`) auto-generated per weekly report — cropped to the two-column top-10 block, mobile-legible, embeddable in LinkedIn posts without any manual screenshot step.
-- **Deployment:** Vercel. `vercel --prod` triggered from GitHub Actions after report HTML is written. Vercel health check + alert configured for ≥99% uptime during Weeks 4–16.
+- **Deployment:** Vercel for the static reports page. Compilation and deployment triggered after database analytical runs complete, using GitHub Actions or a local trigger script. Uptime alert configured to ensure the public report remains accessible.
 - **Local bandwidth-fallback:** the pipeline also writes a local HTML snapshot of the target-company fingerprint to `cache/fingerprint-{company_slug}-{date}.html` before each run completes — enables the Zoom-demo offline fallback (Journey 3).
 
 ### Implementation Considerations
 
-- **Monorepo layout:** `src/ingest/`, `src/extract/`, `src/rank/`, `src/diff/`, `src/report/`, `src/eval/`, `src/notify/`, `prompts/`, `data/`, `docs/`, `cache/`, `tests/`.
-- **Testing strategy:** unit tests for each module's pure functions (extraction schema validation, diff logic, ranking aggregation). Integration test for one full pipeline run against a 5-posting fixture corpus. No mocking of the LLM call in integration tests — use a real Haiku call against a fixed prompt to catch schema regressions.
-- **CI/CD:** GitHub Actions. Two workflows: (1) cron — Saturday 02:00 UTC, runs full pipeline, commits eval result, deploys to Vercel; (2) PR check — runs unit tests + eval regression check on any branch touching `src/` or `prompts/`.
-- **Local dev:** `.env.local` for `ANTHROPIC_API_KEY`, `DATABASE_URL`, `RESEND_API_KEY`. `make run-local` runs the full pipeline against the seed-50 list without deploying. `make eval` runs the eval harness only (no ingest, no report gen).
+- **Monorepo layout:** `frontend/` containing the Vite + React-TS SPA (Mission Control UI) and `backend/` containing the FastAPI Python application (routers, services, db migrations, and tests).
+- **Testing strategy:** pytest for backend Python tests (co-located in `backend/tests/` mirroring backend src) and Vitest for React frontend tests (co-located with components as `*.test.tsx`).
+- **CI/CD:** GitHub Actions to run tests and verification checks on pull requests.
+- **Local dev:** `.env` at repo root for active settings (DATABASE_URL, HERMES_PORT, etc.). Running `make dev` uses the root `package.json` to concurrently launch the React dev server (`localhost:5173`) and Uvicorn backend (`localhost:8000`).
 - **Secrets management:** GitHub Actions secrets for production. No secrets in repo. `.env.example` committed with placeholder keys and comments explaining each variable.
 
 ## Project Scoping & Phased Development
@@ -528,7 +528,7 @@ This section documents the full technical stack discovered across all previous P
 
 **MVP Philosophy constraint (carried from the brief):** Any build milestone that ships without its corresponding Loop B milestone (applications, voice notes, LinkedIn post) has failed its specification. The tool is subordinate to the career outcome. If the tool is ever the reason interviewing is not happening, it has failed — regardless of technical completeness.
 
-**Resource requirements:** 1 developer (Darko), 15–20 hr/week, 4-week build window. Hard LLM budget: $30 total. No external collaborators, no contractors, no reviewers until the public write-up.
+**Resource requirements:** 1 developer (Darko), 15–20 hr/week, 4-week build window. LLM budget: Zero-cost (local Hermes proxy setup). No external collaborators, no contractors, no reviewers until the public write-up.
 
 ### MVP Feature Set (Phase 1) — Weeks 0–4
 
@@ -541,8 +541,8 @@ This section documents the full technical stack discovered across all previous P
 | Week 0 empirical spike: 15 India careers pages → ATS CSV | Week 0 | Blocking prerequisite for seed list |
 | Week 0 resume-bullet ATS optimization pass | Week 0 | User action, not code |
 | 8-source ingest pipeline, parameterized by company | Week 1 | Architectural constraint — not hardcoded |
-| Neon Postgres schema (postings, weekly_reports, profile, accountability_log, eval_samples) | Week 1 | Full schema migrated in Week 1 even if Growth columns are empty |
-| LLM extraction via Vercel AI Gateway (Claude Haiku), 6-field schema, 20-posting batches | Week 1–2 | Prompt v1 committed to `prompts/` |
+| Local Postgres schema (postings, weekly_reports, profile, accountability_log, eval_samples) | Week 1 | Full schema migrated in Week 1 even if Growth columns are empty |
+| LLM extraction via local Hermes proxy (Claude Haiku), 6-field schema, 20-posting batches | Week 1–2 | Prompt v1 committed to `prompts/` |
 | CSV-fallback ingest path plumbed | Week 1 | Plumbed early, not bolted on after kill criterion fires |
 | 20-sample eval harness (10 train / 10 held-out), per-field P/R, regression flag | Week 2 | Held-out set locked before prompts are tuned |
 | Kill-criterion detection as pipeline stage (corpus < 100 OR accuracy < 70%) | Week 2 | Fires before report render |
@@ -563,7 +563,7 @@ This section documents the full technical stack discovered across all previous P
 | Static public HTML deployed to Vercel + Vercel health check + ≥99% uptime alert | Week 4 | |
 | Saturday IST cron via GitHub Actions | Week 4 | Not Monday |
 | Skip-2-weeks nudge email with inline report | Week 4 | Zero-friction recovery |
-| `docs/eval-methodology.md`, `docs/budget.md`, `loop-b-log.md` committed | Week 4 | Craft-signal documents, not afterthoughts |
+| `docs/eval-methodology.md`, `docs/hermes-setup.md`, `loop-b-log.md` committed | Week 4 | Craft-signal documents, not afterthoughts |
 | Public write-up (honest, includes what broke and accuracy numbers) | End of Week 4 | LinkedIn + blog |
 
 **Must-Have Loop B (behavioral, binding):**
@@ -612,7 +612,7 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 | LLM extraction accuracy < 70% on held-out set | Medium | Kill criterion fires → CSV fallback. Prompt v1 tuned on 10 train samples before held-out is ever measured. If accuracy stalls at 65–68%, cut scope (fewer fields, better prompts) rather than chase 70% on 6 fields. |
 | Public ATS API schema change mid-run | Medium | Per-source ingest logged. `debug-attempt-YYYY-MM-DD.log` committed. 60/15 debug time-box prevents over-investment in fixing broken adapters. |
 | India company corpus coverage weaker than assumed | Medium | Week-0 empirical spike is a binding pre-code action. If ≥6 of the 15 India companies use unsupported ATSs, adjust geo-weighting expectations and document in Known Corpus Gaps. |
-| $30 LLM budget exceeded before Week 4 | Low | Batching (20 postings/call), prompt caching, Haiku model default, budget alert at $28, ingest freeze if cap hit. Architecture forces cost discipline. |
+| Local Hermes proxy connection drops | Medium | Connection status verification in pipeline, custom exception handling, warning banner on dashboard, fallback to CSV ingestion. |
 | Vercel build or deployment failure | Low | Standard Vercel CI. Static HTML — no runtime errors possible at serve time. Health check alert catches any deployment outage within 5 minutes. |
 
 **Market / Career Risks:**
@@ -621,7 +621,7 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 |---|---|---|
 | 16-week window closes without offer conversation | Medium | Kill criteria at Weeks 2/4/8 progressively shift time from build to interview. Week 8 trigger: Go Fight Mode (applications double, feature work stops). The tool is not the career outcome — it is one of three levers. |
 | AI engineering hiring market contracts or freezes | Low-medium | Dual-geography framing (US/EU remote + India AI product) provides two independent market segments. India AI captive centers (Microsoft India AI, Google India, etc.) are more insulated from US hiring cycles. |
-| Hiring managers dismiss the project as "toy" | Low | Predicted Red Team attack. Mitigated by: eval harness with per-field accuracy, `docs/eval-methodology.md`, $30 spend discipline, `loop-b-log.md` as parallel job-search evidence. The README first paragraph names the empirical differentiators explicitly. |
+| Hiring managers dismiss the project as "toy" | Low | Predicted Red Team attack. Mitigated by: eval harness with per-field accuracy, `docs/eval-methodology.md`, local Hermes proxy setup documentation, `loop-b-log.md` as parallel job-search evidence. The README first paragraph names the empirical differentiators explicitly. |
 
 **Resource Risks:**
 
@@ -690,8 +690,8 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 - **FR38:** User can create and maintain a hand-labeled evaluation set of job postings annotated against the 6-field extraction schema, with a fixed train/held-out split
 - **FR39:** Pipeline can measure per-field precision and recall on the held-out evaluation set after each extraction run and produce a structured result artifact committed to the repository
 - **FR40:** Pipeline can detect a regression when aggregate extraction accuracy drops more than 3 percentage points from the prior run and flag it in the run output
-- **FR41:** Pipeline can commit a run-summary artifact per weekly execution (corpus size, per-source counts, LLM spend, extraction accuracy) to the public repository
-- **FR42:** Pipeline can track cumulative LLM spend against a $30 hard budget cap and freeze ingest before the next batch run if spend has reached a configurable alert threshold
+- **FR41:** Pipeline can commit a run-summary artifact per weekly execution (corpus size, per-source counts, extraction latency, extraction accuracy) to the public repository
+- **FR42:** Pipeline can verify active local Hermes proxy connection health status and abort the batch run if the proxy is unresponsive
 
 ### Demo & Portfolio Artifacts
 
@@ -699,13 +699,13 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 - **FR44:** Pipeline can write a static local HTML copy of the most recently generated company fingerprint to disk for offline use
 - **FR45:** User can view the company stack fingerprint in a single-screen layout suitable for live screen-share presentation
 - **FR46:** User can view a publicly accessible weekly log of Loop B execution metrics — applications filed, interviews completed, non-frozen interviews, LinkedIn posts, voice notes — updated weekly
-- **FR47:** Pipeline can commit required craft-signal documentation artifacts (eval methodology, LLM spend breakdown with decisions forced by the cap, annotated extraction failure cases) to the public repository as versioned files
+- **FR47:** Pipeline can commit required craft-signal documentation artifacts (eval methodology, local Hermes proxy configuration guide, annotated extraction failure cases) to the public repository as versioned files
 
 ## Non-Functional Requirements
 
 ### Performance
 
-Performance matters for two surfaces: the live interview demo (a reviewer is watching the page load in real time) and the static report (a hiring manager has a 90-second attention budget). The batch pipeline has a secondary performance constraint driven by the $30 LLM budget ceiling.
+Performance matters for two surfaces: the live interview demo (a reviewer is watching the page load in real time) and the static report (a hiring manager has a 90-second attention budget).
 
 - **NFR-P1:** Report page First Contentful Paint < 1.5s measured from Vercel CDN edge for users in India and the US (the two primary viewer segments)
 - **NFR-P2:** Report page Largest Contentful Paint < 2.5s (Core Web Vitals green on Vercel Analytics)
@@ -718,7 +718,7 @@ Performance matters for two surfaces: the live interview demo (a reviewer is wat
 This product has an intentionally minimal security surface. There is no authentication layer, no user account system, and no personally identifiable information beyond a single user's own skills profile. The primary security risk is accidental credential exposure in a public repository.
 
 - **NFR-S1:** No API keys, database connection strings, or service credentials appear in the public repository at any time — enforced via `.gitignore` and a pre-commit hook that blocks commits containing strings matching known credential patterns
-- **NFR-S2:** All external service credentials (Anthropic via Vercel AI Gateway, Neon Postgres, Resend) are stored in GitHub Actions secrets for production runs and in a gitignored `.env.local` for local development; `.env.example` with placeholder values is the only credential-related file committed
+- **NFR-S2:** All external service credentials (Resend) and configurations (local Hermes proxy endpoint port, local Postgres connection settings) are stored in GitHub Actions secrets for production runs and in a gitignored `.env` for local development; `.env.example` with placeholder values is the only configuration-related file committed
 - **NFR-S3:** The weekly report, archive index, and company fingerprint pages are intentionally public and unauthenticated — this is an explicit product decision (portfolio artifact), not a security gap; it must be documented as such in the README to prevent future "fix" attempts
 
 ### Reliability
@@ -732,10 +732,10 @@ Reliability is a product requirement for this project, not just an engineering c
 
 ### Integration
 
-Eight ingest adapters, one LLM provider (via gateway), one email provider, one deployment platform, and one database. Each integration has a distinct failure mode; the pipeline must not treat any single adapter failure as a total run failure.
+Eight ingest adapters, one LLM provider (via proxy), one email provider, one deployment platform, and one database. Each integration has a distinct failure mode; the pipeline must not treat any single adapter failure as a total run failure.
 
 - **NFR-I1:** A single ingest adapter failure does not abort the pipeline run — the failed source is logged with its error, the run continues with the remaining sources, and the per-source diagnostic block in the report reflects the failure honestly
-- **NFR-I2:** All LLM calls route exclusively through Vercel AI Gateway — no direct Anthropic API calls in application code; this is a hard rule enforced by the gateway being the only location where `ANTHROPIC_API_KEY` is configured
+- **NFR-I2:** All LLM calls route exclusively through the local Hermes proxy endpoint — no direct cloud LLM provider calls in backend application code; this is a hard rule enforced by connection health check verification
 - **NFR-I3:** LLM extraction batches tolerate partial structural failures — if a batch of 20 postings returns fewer than 20 valid structured objects, the valid objects are committed and the failed posting IDs are logged; the pipeline does not retry indefinitely or block the run
 - **NFR-I4:** Vercel deployment step is non-blocking for the pipeline logic — if the Vercel deploy fails, the pipeline commits the run-summary artifact and sends an alert, but the ingest and extraction data are preserved in Postgres regardless of deploy outcome
 

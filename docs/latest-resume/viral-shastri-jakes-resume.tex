@@ -1,0 +1,150 @@
+%-------------------------
+% Jake's Resume Template
+% Upload this file to Overleaf: https://www.overleaf.com/latex/templates/jakes-resume/syzfjbzwjncs
+% Or compile locally with pdflatex
+%-------------------------
+
+\documentclass[letterpaper,11pt]{article}
+
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\input{glyphtounicode}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+\addtolength{\oddsidemargin}{-0.5in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1in}
+\addtolength{\topmargin}{-.5in}
+\addtolength{\textheight}{1.0in}
+
+\urlstyle{same}
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+\titleformat{\section}{
+  \vspace{-4pt}\scshape\raggedright\large
+}{}{0em}{}[\color{black}\titlerule \vspace{-5pt}]
+
+\pdfgentounicode=1
+
+%-------------------------
+% Custom commands
+\newcommand{\resumeItem}[1]{
+  \item\small{
+    {#1 \vspace{-2pt}}
+  }
+}
+
+\newcommand{\resumeSubheading}[4]{
+  \vspace{-2pt}\item
+    \begin{tabular*}{0.97\textwidth}[t]{l@{\extracolsep{\fill}}r}
+      \textbf{#1} & #2 \\
+      \textit{\small#3} & \textit{\small #4} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubSubheading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \textit{\small#1} & \textit{\small #2} \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeProjectHeading}[2]{
+    \item
+    \begin{tabular*}{0.97\textwidth}{l@{\extracolsep{\fill}}r}
+      \small#1 & #2 \\
+    \end{tabular*}\vspace{-7pt}
+}
+
+\newcommand{\resumeSubItem}[1]{\resumeItem{#1}\vspace{-4pt}}
+
+\renewcommand\labelitemii{$\vcenter{\hbox{\tiny$\bullet$}}$}
+
+\newcommand{\resumeSubHeadingListStart}{\begin{itemize}[leftmargin=0.15in, label={}]}
+\newcommand{\resumeSubHeadingListEnd}{\end{itemize}}
+\newcommand{\resumeItemListStart}{\begin{itemize}}
+\newcommand{\resumeItemListEnd}{\end{itemize}\vspace{-5pt}}
+
+%-------------------------------------------
+\begin{document}
+
+%----------HEADING----------
+\begin{center}
+    \textbf{\Huge \scshape Viral Shastri} \\ \vspace{1pt}
+    \small +91 84692 23098 $|$
+    \href{mailto:viralshastri99@gmail.com}{\underline{viralshastri99@gmail.com}} $|$
+    \href{https://linkedin.com/in/viralshastri19}{\underline{linkedin.com/in/viralshastri19}} $|$
+    Pune, Maharashtra, India
+\end{center}
+
+%-----------SUMMARY-----------
+\section{Summary}
+\small{Backend engineer with 4.5 years of experience designing and owning high-throughput distributed systems. Built Hyper-Y from scratch as the sole engineer at AVRL — a real-time freight pricing engine processing 100+ requests/sec across 8 enterprise TMS integrations. Expert in Python and event-driven pipeline architecture. Experienced with Node.js across internal tooling and freelance projects. Thrive in high-ownership, small-team environments solving complex backend problems end-to-end.}
+
+%-----------TECHNICAL SKILLS-----------
+\section{Technical Skills}
+ \begin{itemize}[leftmargin=0.15in, label={}]
+    \small{\item{
+     \textbf{Languages}{: Python, JavaScript, Node.js} \\
+     \textbf{Backend}{: Flask, RESTful API Design, Event-Driven Architecture, Microservices, Serverless} \\
+     \textbf{Databases}{: PostgreSQL, Redis, NoSQL, Google Cloud Storage} \\
+     \textbf{Cloud \& DevOps}{: GCP, Google App Engine, GitHub Actions, CI/CD, Git} \\
+     \textbf{Frontend}{: React.js, Next.js (working knowledge)} \\
+     \textbf{Practices}{: Agile, Cross-functional Collaboration}
+    }}
+ \end{itemize}
+
+%-----------EXPERIENCE-----------
+\section{Experience}
+  \resumeSubHeadingListStart
+
+    \resumeSubheading
+      {AVRL}{Austin, Texas, USA (Remote)}
+      {Primary Product Engineer --- Hyper-Y}{2023 -- Present}
+      \resumeItemListStart
+        \resumeItem{Designed and built Hyper-Y from scratch as sole engineer (reporting to CTO) --- a high-availability freight pricing engine processing \textbf{100+ req/sec} across \textbf{8 enterprise TMS integrations} (BlueYonder, MercuryGate, Navisphere, UberFreight, E2Open) on GCP.}
+        \resumeItem{Architected a multi-stage event-driven microservices pipeline --- BNB bid/no-bid evaluation, Phoenix Pricing Engine, and Premium Adjustments via chained decision trees --- enabling per-carrier bidding rules through configuration rather than code deployments.}
+        \resumeItem{Built 8 enterprise TMS integration adapters each handling platform-specific authentication, schema normalization, and automated bid submission using Python and RESTful APIs.}
+        \resumeItem{Deployed and operates Hyper-Y on Google App Engine (serverless) with a private GitHub Actions CI/CD pipeline; designed the authentication service and structured observability pipeline logging all bid decisions to GCP Datastore.}
+        \resumeItem{Built multiple internal Node.js tooling applications automating day-to-day operational workflows across the AVRL team.}
+      \resumeItemListEnd
+
+    \resumeSubheading
+      {AVRL}{Austin, Texas, USA (Remote)}
+      {RPA Automation Engineer}{2020 -- 2023}
+      \resumeItemListStart
+        \resumeItem{Built RPA bot suite in JavaScript and Electron automating the full carrier bidding lifecycle --- bots navigated TMS interfaces, extracted shipment details, routed data through AVRL's pricing pipeline, and placed bids autonomously for large US freight carriers.}
+        \resumeItem{Automated a previously manual, error-prone bidding process across multiple enterprise TMS platforms, eliminating all manual data entry for US carrier operations teams.}
+      \resumeItemListEnd
+
+  \resumeSubHeadingListEnd
+
+%-----------EDUCATION-----------
+\section{Education}
+  \resumeSubHeadingListStart
+    \resumeSubheading
+      {Master of Computer Applications (MCA)}{2022}
+      {[Your University Name]}{Pune, Maharashtra}
+    \resumeSubheading
+      {Bachelor of Computer Applications (BCA)}{2019}
+      {[Your University Name]}{[City], Maharashtra}
+  \resumeSubHeadingListEnd
+
+%-------------------------------------------
+\end{document}
