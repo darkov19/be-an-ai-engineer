@@ -1,0 +1,96 @@
+.hudPanel {
+  position: relative;
+  border: 1px solid var(--border-hud);
+  background: var(--bg-panel);
+  backdrop-filter: blur(12px);
+  padding: 24px;
+  border-radius: 4px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Corner brackets using pseudo elements */
+.hudPanel::before,
+.hudPanel::after {
+  content: '';
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  pointer-events: none;
+  transition: transform 250ms cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease;
+}
+
+.hudPanel::before {
+  top: -1px;
+  left: -1px;
+  border-left: 2px solid var(--theme-glow);
+  border-top: 2px solid var(--theme-glow);
+}
+
+.hudPanel::after {
+  bottom: -1px;
+  right: -1px;
+  border-right: 2px solid var(--theme-glow);
+  border-bottom: 2px solid var(--theme-glow);
+}
+
+/* Theme Glow Modifiers */
+.cyan {
+  --theme-glow: var(--glow-cyan);
+}
+
+.purple {
+  --theme-glow: var(--glow-purple);
+}
+
+.magenta {
+  --theme-glow: var(--glow-magenta);
+}
+
+.green {
+  --theme-glow: var(--glow-green);
+}
+
+/* Glow on Panel Hover */
+.hudPanel:hover {
+  border-color: hsla(180, 50%, 40%, 0.4);
+  box-shadow: 0 0 15px hsla(180, 50%, 30%, 0.2), 0 8px 32px 0 rgba(0, 0, 0, 0.6);
+}
+
+/* Hover-contracting corner brackets */
+.hudPanel:hover::before {
+  transform: translate(2px, 2px);
+}
+
+.hudPanel:hover::after {
+  transform: translate(-2px, -2px);
+}
+
+.panelTitle {
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-hud);
+  padding-bottom: 8px;
+}
+
+.panelContent {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hudPanel::before,
+  .hudPanel::after {
+    transition: none !important;
+  }
+  .hudPanel:hover::before,
+  .hudPanel:hover::after {
+    transform: none !important;
+  }
+}
