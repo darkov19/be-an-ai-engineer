@@ -58,6 +58,7 @@ function App() {
       const isInput = activeEl && (
         activeEl.tagName === 'INPUT' || 
         activeEl.tagName === 'TEXTAREA' || 
+        activeEl.tagName === 'SELECT' || 
         (activeEl as HTMLElement).isContentEditable
       );
       if (isInput) return;

@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     # Pydantic will raise a ValidationError at startup if DATABASE_URL is absent,
     # preventing the app from silently running with embedded credentials.
     database_url: str
+    resend_api_key: str | None = None
+    hermes_host: str = "127.0.0.1"
+    hermes_port: int = 3000
     
     # Configure model config to resolve the environment file relative to the project structure
     model_config = SettingsConfigDict(

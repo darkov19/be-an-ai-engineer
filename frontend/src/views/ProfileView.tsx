@@ -17,6 +17,7 @@ export const ProfileView: React.FC = () => {
 
   const timerRef = useRef<any>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const latestValuesRef = useRef({
     skills: '',
     techStack: '',
@@ -164,13 +165,24 @@ export const ProfileView: React.FC = () => {
     }, 250);
   };
 
-  // Keyboard shortcut blocker for Alt+1 to Alt+5 when form fields are focused
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    const digitMatch = e.code.match(/^Digit([1-5])$/);
-    if (e.altKey && digitMatch) {
-      e.stopPropagation();
-    }
-  };
+  // Keyboard shortcut blocker for Alt+1 to Alt+5 when form fields are focused, registered in capture phase
+  useEffect(() => {
+    const form = formRef.current;
+    if (!form) return;
+
+    const handleKeyDownCapture = (e: KeyboardEvent) => {
+      const digitMatch = e.code.match(/^Digit([1-5])$/);
+      if (e.altKey && digitMatch) {
+        // Stop propagation in the capture phase so that window-level listeners do not intercept it
+        e.stopPropagation();
+      }
+    };
+
+    form.addEventListener('keydown', handleKeyDownCapture, { capture: true });
+    return () => {
+      form.removeEventListener('keydown', handleKeyDownCapture, { capture: true });
+    };
+  }, []);
 
   // Individual Form Change Handlers
   const handleSkillsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -218,7 +230,7 @@ export const ProfileView: React.FC = () => {
   return (
     <div className={viewStyles.viewGrid}>
       <ConsolePanel title="EDIT ENGINEER PROFILE" glowColor={isError ? 'magenta' : 'cyan'}>
-        <form className={styles.profileForm} onSubmit={(e) => e.preventDefault()} onKeyDown={handleKeyDown}>
+        <form ref={formRef} className={styles.profileForm} onSubmit={(e) => e.preventDefault()}>
           <div className={styles.formGrid}>
             <div className={`${styles.inputGroup} ${styles.fullWidth}`}>
               <label htmlFor="skills-input" className={styles.label}>Skills (Comma-separated)</label>
