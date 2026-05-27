@@ -346,6 +346,14 @@ async def test_insert_job_and_duplicate_skipping():
     assert args[1][5] == job["source_slug"]
 
 
+class AsyncContextManagerMock:
+    def __init__(self, return_value=None):
+        self.return_value = return_value
+    async def __aenter__(self):
+        return self.return_value
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
 @pytest.mark.asyncio
 @patch("backend.services.parser.fetch_greenhouse_jobs")
 @patch("backend.services.parser.fetch_yc_waas_jobs")
@@ -354,12 +362,17 @@ async def test_run_full_ingestion_success(mock_hn, mock_yc, mock_greenhouse):
     mock_greenhouse.return_value = [{"url": "url-1", "title": "Job 1", "company": "Company 1", "location": "NYC", "raw_text": "Description 1", "source_slug": "greenhouse"}]
     mock_yc.return_value = [{"url": "url-2", "title": "Job 2", "company": "Company 2", "location": "SF", "raw_text": "Description 2", "source_slug": "yc_waas"}]
     mock_hn.return_value = []
-    
+
     mock_pool = MagicMock()
-    mock_conn = AsyncMock()
-    mock_conn.transaction = MagicMock()
-    mock_conn.transaction.return_value = AsyncMock()
-    mock_pool.connection.return_value.__aenter__.return_value = mock_conn
+    mock_conn = MagicMock()
+    
+    execute_calls = []
+    async def mock_execute(*args, **kwargs):
+        execute_calls.append(args)
+    mock_conn.execute = mock_execute
+    
+    mock_conn.transaction = MagicMock(return_value=AsyncContextManagerMock())
+    mock_pool.connection = MagicMock(return_value=AsyncContextManagerMock(mock_conn))
     
     config = {
         "greenhouse": ["company1"],
@@ -379,4 +392,4 @@ async def test_run_full_ingestion_success(mock_hn, mock_yc, mock_greenhouse):
     assert results["error_message"] is None
     
     # Ensure insert_job was called for jobs
-    assert mock_conn.execute.call_count >= 3  # (2 jobs inserts + 1 ingestion run log insert)
+    assert len(execute_calls) >= 3  # (2 jobs inserts + 1 ingestion run log insert)
