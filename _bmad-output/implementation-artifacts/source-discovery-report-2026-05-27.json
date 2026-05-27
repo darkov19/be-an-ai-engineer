@@ -1,0 +1,27 @@
+{
+    "active_source_count_after_run": 1,
+    "candidate_count": 1,
+    "counts_by_ats": {
+        "greenhouse": 1
+    },
+    "coverage_gaps": {
+        "blocked_provider": 0,
+        "empty_descriptions": 0,
+        "irrelevant_postings": 0,
+        "no_ats_found": 1,
+        "unsupported_ats": 0
+    },
+    "error_count": 0,
+    "rejected_count": 1,
+    "source_freshness_counts": {
+        "inactive": 0,
+        "never_validated": 1,
+        "stale": 0,
+        "validated_within_current_run": 1
+    },
+    "top_rejection_reasons": {
+        "unsupported_or_no_ats_detected": 1
+    },
+    "unsupported_url_count": 1,
+    "validated_count": 1
+}

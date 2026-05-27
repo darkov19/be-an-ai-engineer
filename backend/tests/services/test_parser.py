@@ -451,3 +451,75 @@ async def test_run_full_ingestion_success(mock_hn, mock_yc, mock_greenhouse):
     
     # Ensure insert_job was called for jobs
     assert len(execute_calls) >= 3  # (2 jobs inserts + 1 ingestion run log insert)
+
+
+@pytest.mark.asyncio
+@patch("backend.services.source_discovery.load_active_source_config", new_callable=AsyncMock)
+@patch("backend.services.parser.fetch_greenhouse_jobs", new_callable=AsyncMock)
+@patch("backend.services.parser.fetch_yc_waas_jobs", new_callable=AsyncMock)
+@patch("backend.services.parser.fetch_hn_jobs", new_callable=AsyncMock)
+async def test_run_full_ingestion_uses_registry_when_config_missing(
+    mock_hn,
+    mock_yc,
+    mock_greenhouse,
+    mock_load_registry,
+):
+    mock_load_registry.return_value = {
+        "greenhouse": ["registryco"],
+        "lever": [],
+        "ashby": [],
+        "workable": [],
+        "recruitee": [],
+        "personio": [],
+    }
+    mock_greenhouse.return_value = []
+    mock_yc.return_value = []
+    mock_hn.return_value = []
+
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.transaction = MagicMock(return_value=AsyncContextManagerMock())
+    mock_pool.connection = MagicMock(return_value=AsyncContextManagerMock(mock_conn))
+
+    await run_full_ingestion(mock_pool, config=None)
+
+    mock_load_registry.assert_awaited_once_with(mock_pool)
+    mock_greenhouse.assert_awaited_once_with("registryco")
+
+
+@pytest.mark.asyncio
+@patch("backend.services.source_discovery.load_active_source_config", new_callable=AsyncMock)
+@patch("backend.services.parser.fetch_greenhouse_jobs", new_callable=AsyncMock)
+@patch("backend.services.parser.fetch_yc_waas_jobs", new_callable=AsyncMock)
+@patch("backend.services.parser.fetch_hn_jobs", new_callable=AsyncMock)
+async def test_run_full_ingestion_manual_config_bypasses_registry(
+    mock_hn,
+    mock_yc,
+    mock_greenhouse,
+    mock_load_registry,
+):
+    mock_greenhouse.return_value = []
+    mock_yc.return_value = []
+    mock_hn.return_value = []
+
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.transaction = MagicMock(return_value=AsyncContextManagerMock())
+    mock_pool.connection = MagicMock(return_value=AsyncContextManagerMock(mock_conn))
+
+    await run_full_ingestion(
+        mock_pool,
+        config={
+            "greenhouse": ["manualco"],
+            "lever": [],
+            "ashby": [],
+            "workable": [],
+            "recruitee": [],
+            "personio": [],
+        },
+    )
+
+    mock_load_registry.assert_not_called()
+    mock_greenhouse.assert_awaited_once_with("manualco")

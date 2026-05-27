@@ -477,7 +477,12 @@ async def run_full_ingestion(pool, config: dict = None) -> dict:
     Orchestrates the full multi-source ingestion run.
     """
     if config is None:
-        config = DEFAULT_INGESTION_CONFIG
+        from backend.services.source_discovery import load_active_source_config
+
+        config = await load_active_source_config(pool)
+        if not any(config.values()):
+            logger.warning("Source registry is empty; using DEFAULT_INGESTION_CONFIG bootstrap fallback")
+            config = DEFAULT_INGESTION_CONFIG
         
     start_time = time.perf_counter()
     source_counts = {}

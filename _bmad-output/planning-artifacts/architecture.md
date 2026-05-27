@@ -3,6 +3,7 @@ stepsCompleted: [1, 2, 3, 4, 5, 6, 7, 8]
 inputDocuments:
   - _bmad-output/planning-artifacts/prd.md
   - _bmad-output/planning-artifacts/product-brief-be-an-ai-engineer.md
+  - _bmad-output/planning-artifacts/source-discovery-channel-strategy.md
   - _bmad-output/brainstorming/brainstorming-session-2026-04-10-01.md
   - docs/business-os-genai-spec.md
 workflowType: 'architecture'
@@ -25,7 +26,8 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 **Functional Requirements:**
 - **Mission Control UI**: A local React SPA dashboard to trigger tasks, edit user profiles, visualize skills/gaps, run evaluations, and update the accountability ledger.
 - **Local API Backend**: A Python backend (FastAPI) to expose services to the React UI and manage the data pipeline.
-- **Multi-Source Ingestion**: Ingest AI engineering job postings from Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, YC `workatastartup.com`, and HN threads. Triggerable on-demand via the React UI.
+- **Multi-Source Ingestion**: Ingest AI engineering job postings from active source-registry rows backed by Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, YC `workatastartup.com`, HN threads, and validated company `JobPosting` JSON-LD. Triggerable on-demand via the React UI.
+- **Company Discovery & Canonical Source Resolution**: Discover companies from HN, Google Custom Search, constrained Wellfound signals, Common Crawl ATS indexes, YC directories, VC portfolio pages, GitHub organization metadata, and Reddit hiring posts, then activate only canonical employer or ATS sources after validation.
 - **Structured LLM Extraction**: Extract job fields (skills, seniority, tech stack, salary band, remote policy, and role archetype) using the local Hermes proxy pointing to the Codex subscription.
 - **Evaluation Harness UI**: Trigger evals and audit extraction accuracy (precision/recall) directly on the dashboard.
 - **Storage & Vector Search**: Local Neon Postgres/pgvector instance for vector embedding storage and profile matching.
@@ -41,19 +43,22 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 **Scale & Complexity:**
 - Project complexity appears to be: **High-Medium** (moving from automated batch scripts to a full-stack local web application with React state and FastAPI-driven task execution).
 - Primary technical domain: **Full-Stack Local Application (React + FastAPI + Postgres)**
-- Estimated architectural components: **8** (React UI, API Backend, Ingest Engine, Extraction Client, Local Vector DB, Evaluation Harness, Analytical Processor, Accountability Ledger Manager).
+- Estimated architectural components: **9** (React UI, API Backend, Ingest Engine, Company Discovery/Canonical Resolver, Extraction Client, Local Vector DB, Evaluation Harness, Analytical Processor, Accountability Ledger Manager).
 
 ### Technical Constraints & Dependencies
 - **No Cloud Services**: Postgres must run in Docker or locally natively.
 - **No CSV Fallback**: Pipeline must be robust to source errors.
 - **LLM Proxy Dependency**: All LLM interactions depend on the local Hermes proxy endpoint (running on localhost).
 - **Local Dev Server Setup**: Vite (React) dev server + Uvicorn (FastAPI) backend.
+- **Canonical Source Rule**: Google is allowed only through Custom Search JSON API, with explicit caps and optional credentials. Wellfound is constrained to company/domain/evidence signals. LinkedIn and Indeed are manual-signal surfaces only. No browser automation or marketplace scraping becomes part of the trusted corpus.
 
 ### Cross-Cutting Concerns Identified
 - **State Synchronization**: Syncing UI edits (like profile updates) immediately to recalculate rankings in the database.
 - **Task Management**: Managing long-running ingestion/eval scripts in the background without locking the UI thread.
 - **Schema Evolution**: LLM JSON schema changes.
 - **Error Handling**: API transient errors, rate limits, and proxy disconnects.
+- **Discovery Provider Isolation**: Provider failures, quota exhaustion, and low-confidence results must be isolated per provider so one noisy channel cannot block the weekly ingest.
+- **Discovery Auditability**: Every discovered company/source must preserve evidence URL, provider, validation status, rejection reason, and last-seen timestamp.
 
 ## Starter Template Evaluation
 
@@ -177,6 +182,7 @@ pip install "pytest==9.0.0" pytest-asyncio httpx
 - **Database**: Local Postgres 16 + pgvector via `docker-compose.yml` (`pgvector/pgvector:pg16` image) — one command: `docker compose up -d`
 - **Query Layer**: Raw `psycopg` **3.2.10** (psycopg3) + `pgvector-python` — no ORM. Explicit SQL committed to repo is a stronger portfolio signal than abstracted ORM calls.
 - **Schema Migrations**: Versioned SQL scripts (`db/migrations/V001__init.sql`) committed to repo. No Alembic for MVP.
+- **Discovery Tables**: Source discovery uses `job_sources`, `job_source_candidates`, and `source_discovery_runs`; Company Radar extends this with `company_signals` and `company_discovery_runs` so signals stay separate from validated active ingest sources.
 - **Caching**: None in MVP. Local DB + corpus ≤500 rows = no latency issue.
 
 ### Authentication & Security
@@ -269,7 +275,7 @@ pip install "pytest==9.0.0" pytest-asyncio httpx
 - Where do tests live? Frontend: co-located next to component with `*.test.tsx` / `*.test.ts`. Backend: Placed in a mirrored `tests/` subdirectory matching the root source directory (e.g., `backend/tests/routers/test_ingest.py` tests `backend/routers/ingest.py`).
 - Component organization: By page/feature folder under `frontend/src/pages/` or general reusable components under `frontend/src/components/`.
 - Shared utilities: Frontend uses `frontend/src/utils/`, Backend uses `backend/utils/`.
-- Services: Backend business logic lives in `backend/services/` (e.g., `backend/services/ingestion.py`).
+- Services: Backend business logic lives in `backend/services/` (e.g., `backend/services/parser.py`, `backend/services/source_discovery.py`, and future `backend/services/company_discovery.py` / `backend/services/canonical_resolver.py`).
 
 **File Structure Patterns:**
 - Config file locations and naming: `.env` at repo root for global settings. Frontend uses `vite.config.ts`, Backend configuration lives in `backend/config.py`.
@@ -368,6 +374,15 @@ async def get_job(jobId: str):
 - **SSE Endpoint**: A GET endpoint `/api/v1/tasks/{task_id}/logs/stream` returns Starlette's native `StreamingResponse` with `media_type="text/event-stream"` and streams log events from the `asyncio.Queue` to the frontend. Do not add an external SSE package; the implemented dependency policy uses framework-native SSE formatting.
 - **Frontend Integration**: A custom hook `useSSE(taskId)` manages the connection state (connecting/disconnecting) and maintains an array of log objects in component state, enabling the live-scrolling terminal UI.
 - **Task Completion**: Once the ingestion process completes (or encounters a fatal error), the task service emits terminal control events as SSE records (`task.completed` or `task.failed`) so the React frontend can close the connection and update task status without polling.
+
+### Step 5b: Company Discovery & Canonical Source Resolution
+
+**Implementation Logic:**
+- **Provider Interface**: Discovery providers return structured signals with provider name, evidence URL, confidence, optional company domain, and category hints. Providers are independently enabled and capped.
+- **Canonical Resolver**: Company-domain signals are resolved only through bounded careers paths, declared sitemaps, supported ATS links, and `JobPosting` JSON-LD. This is not a crawler.
+- **Registry Boundary**: `company_signals` and `job_source_candidates` are evidence layers. Only validated canonical rows become active `job_sources`, and weekly ingestion reads from `job_sources`.
+- **API Surface**: Existing `/api/v1/ingest/discover-sources` remains the operational entrypoint for source discovery; future provider diagnostics expose yield, rejection reasons, freshness, and quota status.
+- **Marketplace Constraint**: Google is an official API provider, Wellfound is a constrained company-signal provider, and LinkedIn/Indeed are not automated providers.
 
 ## Project Structure & Boundaries
 
@@ -494,6 +509,7 @@ be-an-ai-engineer/
 **Feature/Epic Mapping:**
 - **Mission Control Dashboard**: Front-end components in `frontend/src/pages/Dashboard/`, API logic in `backend/routers/jobs.py` (analytics aggregation queries).
 - **Multi-Source Ingest**: Ingestion triggering in `frontend/src/pages/Ingest/`, routing logic in `backend/routers/ingest.py`, parsing functions in `backend/services/parser.py`.
+- **Company Discovery & Source Registry**: Discovery orchestration in `backend/services/source_discovery.py`; future company signal providers in `backend/services/company_discovery.py`; canonical validation/resolution in `backend/services/canonical_resolver.py`; persistence through `job_sources`, `job_source_candidates`, `source_discovery_runs`, `company_signals`, and `company_discovery_runs`.
 - **Structured Extraction**: LLM client in `backend/llm/client.py`, structured JSON schemas in `backend/llm/schemas.py`, proxy routing via Hermes, and first-class proxy health verification in `backend/llm/hermes.py`.
 - **Evaluation Harness**: UI dashboard in `frontend/src/pages/Evals/`, testing/comparison rules in `backend/services/evaluator.py`, endpoints in `backend/routers/evals.py`.
 - **Accountability Ledger**: Front-end layout in `frontend/src/pages/Ledger/`, backend queries in `backend/routers/ledger.py`.
@@ -554,12 +570,14 @@ be-an-ai-engineer/
 **Epic/Feature Coverage:**
 - **Mission Control Dashboard**: Fully covered by `Dashboard.tsx` UI and `backend/routers/jobs.py` analytics queries.
 - **Multi-Source Ingest**: Fully covered by `Ingest.tsx` UI, `backend/routers/ingest.py`, and `backend/services/parser.py`.
+- **Company Discovery & Canonical Source Expansion**: Covered by `backend/services/source_discovery.py`, the future provider/resolver service boundary, source-registry migrations, and provider yield reporting artifacts.
 - **Structured Extraction**: Managed via `backend/llm/client.py` and validated using Pydantic in `backend/llm/schemas.py`.
 - **Evaluation Harness**: Handled by `backend/routers/evals.py` and visualized using recharts in the Evals page.
 - **Accountability Ledger**: Addressed via `backend/routers/ledger.py` CRUD endpoints.
 
 **Functional Requirements Coverage:**
 - All ingestion sources (Greenhouse, Lever, Ashby, Workable, etc.) will be supported by specialized parser blocks in `backend/services/parser.py`.
+- Company discovery requirements FR48-FR55 are covered by provider contracts, canonical resolver validation, source registry tables, capped Google/Wellfound constraints, and discovery reporting.
 - Task tracking logs utilize an in-memory queue streaming to SSE without locking the server thread.
 
 **Non-Functional Requirements Coverage:**

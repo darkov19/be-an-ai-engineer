@@ -63,6 +63,14 @@ This document provides the complete epic and story breakdown for be-an-ai-engine
 - **FR45:** User can view the company stack fingerprint in a single-screen layout suitable for live screen-share presentation
 - **FR46:** User can view a publicly accessible weekly log of Loop B execution metrics — applications filed, interviews completed, non-frozen interviews, LinkedIn posts, voice notes — updated weekly
 - **FR47:** Pipeline can commit required craft-signal documentation artifacts (eval methodology, local Hermes proxy configuration guide, annotated extraction failure cases) to the public repository as versioned files
+- **FR48:** Pipeline can store company discovery signals from multiple providers, including company name, domain, evidence URL, provider name, confidence, and category hints
+- **FR49:** Pipeline can resolve discovered company domains to canonical careers or ATS sources using bounded careers paths, sitemap parsing, ATS URL detection, and JobPosting JSON-LD parsing
+- **FR50:** Pipeline can use Google Custom Search JSON API as an optional capped signal provider for careers and ATS page discovery without scraping Google result pages
+- **FR51:** Pipeline can use Wellfound as a constrained company-signal provider, extracting company/domain/evidence only and never treating Wellfound job text as trusted corpus data
+- **FR52:** Pipeline can query Common Crawl indexes for supported public ATS URL patterns, deduplicate ATS slugs, and validate candidates before activation
+- **FR53:** Pipeline can discover company signals from YC company directories and VC portfolio pages, then verify hiring through canonical company or ATS sources
+- **FR54:** Pipeline can discover lower-confidence company signals from GitHub organization metadata and Reddit hiring posts using official APIs where available
+- **FR55:** Discovery reports can compare provider yield, source freshness, active source growth, rejected reasons, and coverage gaps across all discovery providers
 
 
 ### NonFunctional Requirements
@@ -135,44 +143,52 @@ This document provides the complete epic and story breakdown for be-an-ai-engine
 - **FR7:** Epic 2 - Single company on-demand ingestion
 - **FR8:** Epic 2 - CSV fallback ingestion
 - **FR9:** Epic 2 - Run telemetry logging
-- **FR10:** Epic 3 - Structured LLM signal extraction
-- **FR11:** Epic 3 - Batch processing and deduplication
-- **FR12:** Epic 3 - Prompt version tracking
-- **FR13:** Epic 4 - Skill frequency ranking by geo
-- **FR14:** Epic 4 - Skill co-occurrence clusters calculation
-- **FR15:** Epic 4 - Salary-band / tech-stack correlations
-- **FR16:** Epic 4 - Geo-segment assignment
-- **FR17:** Epic 4 - Experience threshold distribution
+- **FR10:** Epic 4 - Structured LLM signal extraction
+- **FR11:** Epic 4 - Batch processing and deduplication
+- **FR12:** Epic 4 - Prompt version tracking
+- **FR13:** Epic 5 - Skill frequency ranking by geo
+- **FR14:** Epic 5 - Skill co-occurrence clusters calculation
+- **FR15:** Epic 5 - Salary-band / tech-stack correlations
+- **FR16:** Epic 5 - Geo-segment assignment
+- **FR17:** Epic 5 - Experience threshold distribution
 - **FR18:** Epic 1 - Candidate profile management
-- **FR19:** Epic 4 - Profile fit score computation
-- **FR20:** Epic 4 - Skill-gap diff calculation
+- **FR19:** Epic 5 - Profile fit score computation
+- **FR20:** Epic 5 - Skill-gap diff calculation
 - **FR21:** Epic 1 - Profile freshness warning
-- **FR22:** Epic 5 - Weekly commitment and action logging
-- **FR23:** Epic 5 - Accountability ledger UI display
-- **FR24:** Epic 5 - Consecutive missed commitment flags
-- **FR25:** Epic 3 - Render-blocking kill criterion enforcement
-- **FR26:** Epic 3 - Non-blocking warning mode banner
+- **FR22:** Epic 6 - Weekly commitment and action logging
+- **FR23:** Epic 6 - Accountability ledger UI display
+- **FR24:** Epic 6 - Consecutive missed commitment flags
+- **FR25:** Epic 4 - Render-blocking kill criterion enforcement
+- **FR26:** Epic 4 - Non-blocking warning mode banner
 - **FR27:** Epic 2 - Bounded 60-min ingest debug session
 - **FR28:** Epic 2 - Delayed-handoff CSV pivot email
 - **FR29:** Epic 2 - Inactive-Saturday email reports
-- **FR30:** Epic 4 - Public unauthenticated report URL
-- **FR31:** Epic 4 - Geo-segmented two-column report layout
-- **FR32:** Epic 4 - Experience-threshold distribution strip
-- **FR33:** Epic 4 - Fit score delta tracking
-- **FR34:** Epic 4 - Automated weekly report deployment
-- **FR35:** Epic 4 - Social/mobile shareable report image
-- **FR36:** Epic 4 - Archived past-reports index page
-- **FR37:** Epic 4 - One-click demo close URL parameter
-- **FR38:** Epic 3 - Labeled evaluation dataset management
-- **FR39:** Epic 3 - Precision and recall extraction audits
-- **FR40:** Epic 3 - Regression detection
-- **FR41:** Epic 3 - Committed run-summary artifacts
-- **FR42:** Epic 3 - Local Hermes proxy connection health checks
-- **FR43:** Epic 4 - On-demand company stack fingerprint
+- **FR30:** Epic 5 - Public unauthenticated report URL
+- **FR31:** Epic 5 - Geo-segmented two-column report layout
+- **FR32:** Epic 5 - Experience-threshold distribution strip
+- **FR33:** Epic 5 - Fit score delta tracking
+- **FR34:** Epic 5 - Automated weekly report deployment
+- **FR35:** Epic 5 - Social/mobile shareable report image
+- **FR36:** Epic 5 - Archived past-reports index page
+- **FR37:** Epic 5 - One-click demo close URL parameter
+- **FR38:** Epic 4 - Labeled evaluation dataset management
+- **FR39:** Epic 4 - Precision and recall extraction audits
+- **FR40:** Epic 4 - Regression detection
+- **FR41:** Epic 4 - Committed run-summary artifacts
+- **FR42:** Epic 4 - Local Hermes proxy connection health checks
+- **FR43:** Epic 5 - On-demand company stack fingerprint
 - **FR44:** Epic 2 - Static local HTML fingerprint export
-- **FR45:** Epic 4 - Single-screen fingerprint presentation view
-- **FR46:** Epic 5 - Publicly accessible Loop B execution log
-- **FR47:** Epic 3 - Committed craft-signal documentation artifacts
+- **FR45:** Epic 5 - Single-screen fingerprint presentation view
+- **FR46:** Epic 6 - Publicly accessible Loop B execution log
+- **FR47:** Epic 4 - Committed craft-signal documentation artifacts
+- **FR48:** Epic 3 - Company discovery signal registry
+- **FR49:** Epic 3 - Canonical source resolver
+- **FR50:** Epic 3 - Google Custom Search signal provider
+- **FR51:** Epic 3 - Wellfound constrained signal provider
+- **FR52:** Epic 3 - Common Crawl ATS index provider
+- **FR53:** Epic 3 - YC and VC company discovery providers
+- **FR54:** Epic 3 - GitHub and Reddit signal providers
+- **FR55:** Epic 3 - Provider yield, freshness, and coverage reporting
 
 ## Epic List
 
@@ -184,15 +200,19 @@ This document provides the complete epic and story breakdown for be-an-ai-engine
 *   **User Outcome**: The developer can trigger live job ingestion from public ATS platforms (Greenhouse, Lever, Ashby, Workable, Recruitee, Personio), Y Combinator, and HN threads, observing the execution details in a live terminal window. They can fall back to a manual CSV upload if the parser is offline or if a kill criterion is active.
 *   **FRs covered**: FR1, FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR27, FR28, FR29, FR44
 
-### Epic 3: AI Signal Extraction & Interactive Evals (The "Prognosis Engine")
+### Epic 3: Company Discovery & Canonical Source Expansion (The "Company Radar")
+*   **User Outcome**: The developer can expand the market scanner beyond manual seeds by discovering companies from HN, Google, Wellfound, Common Crawl, YC, VC portfolios, GitHub, and Reddit, then validating only canonical company or ATS sources before weekly ingestion uses them.
+*   **FRs covered**: FR48, FR49, FR50, FR51, FR52, FR53, FR54, FR55
+
+### Epic 4: AI Signal Extraction & Interactive Evals (The "Prognosis Engine")
 *   **User Outcome**: The system automatically extracts structured data (skills, seniority, stack, salary, policy, archetype) from job descriptions using an LLM. The developer can verify and audit the extraction quality using a hand-labeled evaluation dataset, tracking precision/recall metrics on a visual graph to prevent accuracy regressions. The system enforces render-blocking kill criteria and warning modes based on extraction precision.
 *   **FRs covered**: FR10, FR11, FR12, FR25, FR26, FR38, FR39, FR40, FR41, FR42, FR47
 
-### Epic 4: Geo-Segmented Job Intelligence & Search (The "Career Cockpit")
+### Epic 5: Geo-Segmented Job Intelligence & Search (The "Career Cockpit")
 *   **User Outcome**: The developer can view a unified dashboard showing top-ranked skills, skill clusters, and salary-stack correlations across US/EU remote and India AI product markets side-by-side. They can search the corpus, look up single-company tech stack fingerprints, and diff the market trends directly against their profile to identify skill gaps.
 *   **FRs covered**: FR13, FR14, FR15, FR16, FR17, FR19, FR20, FR30, FR31, FR32, FR33, FR34, FR35, FR36, FR37, FR43, FR45
 
-### Epic 5: Weekly Commitment Tracker & Exposure Therapy (The "Accountability Partner")
+### Epic 6: Weekly Commitment Tracker & Exposure Therapy (The "Accountability Partner")
 *   **User Outcome**: The developer can define weekly job application targets and learning goals, logging their progress by linking real Git commits or applications. The dashboard enforces accountability by displaying missed targets prominently in red, helping the developer stay focused on the transition.
 *   **FRs covered**: FR22, FR23, FR24, FR46
 
@@ -294,7 +314,7 @@ So that I can monitor parser runs live and supply fallback job listings when ext
 **When** clicking `[INITIATE REMOTE SCAN]`
 **Then** the UI triggers the API, connects a `useSSE` hook to the stream endpoint, and displays running percentages and status LEDs (pulsing cyan for scanning, mint green for complete, magenta warning for error)
 **And** the `TerminalConsole` component streams syntax-highlighted logs (green for INFO, orange for WARN, magenta for ERROR), supporting scroll locking and manual pause/download logs buttons
-**And** if a network timeout of 3 seconds is reached, a top banner slides down displaying `[TIMEOUT DETECTED - PARSER OFFLINE]` with a button offering placeholder error recovery or retry options (to be integrated with offline fingerprints in Epic 4)
+**And** if a network timeout of 3 seconds is reached, a top banner slides down displaying `[TIMEOUT DETECTED - PARSER OFFLINE]` with a button offering placeholder error recovery or retry options (to be integrated with offline fingerprints in Epic 5)
 **And** dragging a CSV file over the drop-zone displays a green border sweep animation and, on drop, parses and uploads the CSV data via `POST /api/v1/ingest/csv` to update the database
 
 ### Story 2.4: Scheduled Ingestion Cron & Diagnostic Alerts
@@ -328,11 +348,80 @@ So that weekly ingestion scans the widest practical AI-engineering market corpus
 **And** default weekly ingestion uses active registry rows instead of hardcoded company slugs
 **And** discovery produces a run report showing found, validated, rejected, errored, and unsupported sources.
 
-## Epic 3: AI Signal Extraction & Interactive Evals (The "Prognosis Engine")
+## Epic 3: Company Discovery & Canonical Source Expansion (The "Company Radar")
+
+The developer can expand market scanning beyond manual seeds by discovering companies and direct ATS sources from HN, Google Custom Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit. The system resolves company signals to canonical careers or ATS sources, validates live relevant jobs, and reports provider yield before sources become active in weekly ingestion.
+
+### Story 3.1: Company Signals and Canonical Source Resolver
+
+As a transitioning developer,
+I want discovered company signals to be persisted and resolved to canonical careers or ATS sources,
+So that later provider integrations can identify which companies are worth checking without directly trusting third-party job boards.
+
+**Acceptance Criteria:**
+
+**Given** a new migration after `V005__add_job_source_registry.sql`
+**When** migrations run
+**Then** tables for company discovery signals and company discovery runs are created with provider metadata, evidence URLs, confidence/category hints, status, rejection reason, and timestamps
+**And** the backend exposes a company signal model/provider contract that can emit company domains, careers URLs, direct ATS URLs, and evidence metadata
+**And** a canonical resolver checks only bounded company paths (`/careers`, `/jobs`, `/join-us`, `/work-with-us`, `/company/careers`), declared sitemaps, supported ATS URLs, and `JobPosting` JSON-LD
+**And** the resolver never executes JavaScript, uses browser automation, follows unbounded links, or activates a source without existing ATS/JSON-LD validation
+**And** rejected or unresolved companies persist visible rejection reasons for diagnostics.
+
+### Story 3.2: Google and Wellfound Direct Hiring Signal Providers
+
+As a transitioning developer,
+I want Google Custom Search and constrained Wellfound signals to identify companies that may be hiring,
+So that the market scanner can discover fresh startup and AI/backend opportunities while still validating jobs from canonical company sources.
+
+**Acceptance Criteria:**
+
+**Given** optional Google Custom Search credentials are configured
+**When** source discovery runs
+**Then** `GoogleSearchSignalProvider` uses only the official Custom Search JSON API with a configurable daily cap defaulting to 100 queries/day
+**And** Google results store query text, result URL, title, snippet, rank, provider metadata, and evidence URL as signals only
+**And** no Google result page or Google Jobs page is scraped or treated as trusted job data
+**And** `WellfoundSignalProvider` is disabled by default unless explicitly enabled
+**And** Wellfound extraction supports manual/imported company URLs first and, if automated public extraction is enabled, enforces no login, no browser automation, no pagination crawling, no disallowed `/_jobs/` crawling, max 5 pages/run by default, and 5+ second request delay
+**And** Wellfound output stores only company name, domain/homepage if visible, evidence URL, and confidence before canonical validation.
+
+### Story 3.3: Common Crawl, YC, and VC Scale Discovery Providers
+
+As a transitioning developer,
+I want scale-oriented discovery providers to find direct ATS boards and relevant startup/company domains,
+So that the scanner can grow beyond a small set of obvious companies without relying on manual seeds.
+
+**Acceptance Criteria:**
+
+**Given** Common Crawl indexes are reachable
+**When** the Common Crawl provider runs
+**Then** it queries capped URL patterns for supported ATS hosts including Greenhouse, Lever, Ashby, Workable, Recruitee, and Personio
+**And** it normalizes discovered ATS URLs into source candidates, deduplicates by `(ats, slug)`, and validates through existing parser adapters before activation
+**And** YC provider extracts company name, website, YC evidence URL, tags, and category hints from selected public YC categories such as AI, developer tools, infrastructure, data engineering, databases, open source, and search
+**And** VC portfolio providers extract company names and homepage URLs from configured public portfolio pages such as a16z, Sequoia, Index, Accel, Greylock, Lightspeed, and Conviction
+**And** YC and VC outputs are treated as company signals and must pass canonical source resolution before any source is activated.
+
+### Story 3.4: Long-Tail Signals and Provider Yield Reporting
+
+As a transitioning developer,
+I want GitHub, Reddit, provider yield metrics, and freshness reporting to improve coverage over time,
+So that I can see which discovery channels produce useful validated sources and which companies need rechecking or retirement.
+
+**Acceptance Criteria:**
+
+**Given** GitHub API access is available
+**When** GitHub organization signal discovery runs
+**Then** it searches relevant AI/backend/devtools topics, extracts org/repo website and README links, and treats findings as relevance signals rather than hiring proof
+**And** Reddit signal discovery uses Reddit API/search for configured hiring communities and extracts company names, domains, careers URLs, and evidence URLs with lower default confidence
+**And** discovery reports compare provider yield, source freshness, active source growth, rejected reasons, and coverage gaps across all discovery providers
+**And** diagnostics identify stale, inactive, repeatedly rejected, and high-yield companies/sources
+**And** weekly ingestion still reads only active validated rows from `job_sources`.
+
+## Epic 4: AI Signal Extraction & Interactive Evals (The "Prognosis Engine")
 
 The system automatically extracts structured data (skills, seniority, stack, salary, policy, archetype) from job descriptions using an LLM. The developer can verify and audit the extraction quality using a hand-labeled evaluation dataset, tracking precision/recall metrics on a visual graph to prevent accuracy regressions. The system enforces render-blocking kill criteria and warning modes based on extraction precision.
 
-### Story 3.1: LLM Structured Extraction and Proxy Verification
+### Story 4.1: LLM Structured Extraction and Proxy Verification
 
 As a developer,
 I want a Pydantic-validated extraction client that sends job text to the local Hermes proxy and returns structured JSON, batching calls, versioning prompts, and verifying proxy health before processing,
@@ -348,7 +437,7 @@ So that extraction is structured, audit-logged, and fails safely if the proxy is
 **And** if the local Hermes proxy connection is unresponsive, the pipeline aborts the batch run, logs the connection error, and raises a custom `HermesProxyConnectionError`
 
 
-### Story 3.2: Labeled Eval Set Management & Accuracy Audits
+### Story 4.2: Labeled Eval Set Management & Accuracy Audits
 
 As a developer,
 I want a database migration `V006__add_evals.sql` that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
@@ -364,7 +453,7 @@ So that extraction accuracy is measured mathematically and regression is flagged
 **And** if the overall accuracy drops by more than 3 percentage points compared to the last run, a regression flag `accuracy_regression: true` is saved
 **And** the run summary is committed as `run-summary-YYYY-WW.json` to the repo history
 
-### Story 3.3: Interactive Evals Dashboard and Regression Charts
+### Story 4.3: Interactive Evals Dashboard and Regression Charts
 
 As a transitioning developer,
 I want an interactive `/evals` page showing precision/recall line charts, run history, and detailed parameter controls to run tests and audit LLM extraction quality live,
@@ -379,7 +468,7 @@ So that I can review parser accuracy transparently.
 **And** clicking `[RUN EVALUATION]` triggers the async background execution, showing a concentric double-ring spinner and printing live progress
 **And** a detailed tabular audit view displays the 20-sample extraction diffs side-by-side (expected vs. actual fields) with mismatch values highlighted in orange
 
-### Story 3.4: Kill-Criterion Enforcement and Warning Banner
+### Story 4.4: Kill-Criterion Enforcement and Warning Banner
 
 As a developer,
 I want a render-blocking middleware or pipeline validation check that blocks report generation if the corpus size is < 100 or extraction accuracy is < 70%, displaying warning notices if only one threshold is breached,
@@ -393,11 +482,11 @@ So that faulty ingestion runs do not produce corrupt market metrics.
 **And** attempting to view the dashboard renders a full-page alert banner: `▲ [KILL CRITERION TRIGGERED] Ingestion corpus or accuracy below minimum quality thresholds. Dashboard locked.`
 **And** if only one threshold is breached, the dashboard is not blocked but renders a yellow top banner: `▲ [WARNING] Danger Zone: Ingestion quality thresholds near limit. 7 days to recover before console lock.`
 
-## Epic 4: Geo-Segmented Job Intelligence & Search (The "Career Cockpit")
+## Epic 5: Geo-Segmented Job Intelligence & Search (The "Career Cockpit")
 
 The developer can view a unified dashboard showing top-ranked skills, skill clusters, and salary-stack correlations across US/EU remote and India AI product markets side-by-side. They can search the corpus, look up single-company tech stack fingerprints, and diff the market trends directly against their profile to identify skill gaps.
 
-### Story 4.1: Analytical Query Processor & Geo-Segmentation
+### Story 5.1: Analytical Query Processor & Geo-Segmentation
 
 As a developer,
 I want backend SQL analytical routines that compute top-ranked skills, skill clusters (co-occurrence correlations), and experience/salary distribution trends grouped by geo-preference,
@@ -413,7 +502,7 @@ So that market data is aggregated into structured analytical indices.
 **And** salary-band and tech-stack correlations are calculated for listings with disclosed salary ranges
 **And** the experience threshold distribution (% of roles requiring 0/3+/5+/senior-only) is compiled
 
-### Story 4.2: Volumetric Brain Visualizer & ECG Telemetry Chart
+### Story 5.2: Volumetric Brain Visualizer & ECG Telemetry Chart
 
 As a transitioning developer,
 I want a central dashboard panel displaying an interactive, rotating 3D SVG brain mesh that highlights skill anomalies in magenta and turns green when they are cleared, accompanied by an SVG-drawn ECG waveform showing active ingestion and learning telemetry,
@@ -429,7 +518,7 @@ So that I have a highly engaging visual centerpiece representing my pathway diag
 **And** the `TelemetryChart` renders a smooth Bezier SVG path that spikes or flatlines representing commit and parsing telemetry over a panning grid backdrop
 **And** on mobile views (`< 768px`), the 3D rotation deactivates, displaying a static SVG to conserve battery
 
-### Story 4.3: Geo-Segmented Market Analysis & Skill-Gap Diff
+### Story 5.3: Geo-Segmented Market Analysis & Skill-Gap Diff
 
 As a transitioning developer,
 I want a dual-column market dashboard displaying top-10 US/EU remote skills side-by-side with India AI product skills, calculating a cosine-similarity profile fit score delta, and outputting an actionable skill-gap diff table,
@@ -444,7 +533,7 @@ So that I can scan my market position and identify specific missing skills.
 **And** a detailed tabular diff highlights which top-ranked market skills are missing from your profile, prioritizing them in red
 **And** the dashboard header includes a profile freshness nudge if the profile has not been updated in 21+ days
 
-### Story 4.4: Company Stack Fingerprint & Interview Screen-Share View
+### Story 5.4: Company Stack Fingerprint & Interview Screen-Share View
 
 As a transitioning developer,
 I want a single-screen company stack fingerprint page (top technology list, role archetypes, and an AI-generated Stack observation) that renders in < 2s for live interview screen-shares, including a one-click close parameter to exit clean,
@@ -460,7 +549,7 @@ So that I can share my screen and present real-time company insights during live
 **And** the system pre-computes and writes static local HTML copies of the company stack fingerprints to `frontend/public/cached-fingerprints/{company_slug}.html` for offline fallback during live screen-share runs
 **And** the `/ingest` page timeout banner's offline fallback button is updated to load these cached company stack fingerprints when a timeout occurs
 
-### Story 4.5: Archive Index & Social Sharing
+### Story 5.5: Archive Index & Social Sharing
 
 As a developer,
 I want a weekly report deployment workflow that publishes the report to a public Vercel URL on cron, logs history to a public `/archive` index, and generates shareable social images representing key weekly stats,
@@ -474,11 +563,11 @@ So that my career search results are preserved, public, and shareable.
 **And** navigating to `/archive` displays a list of all past weekly reports, allowing visitors to click any week and view its historic rankings
 **And** the system auto-generates a high-contrast OpenGraph static image (375px equivalent mobile text legibility) representing the week's top skills and profile fit score for social preview embedding.
 
-## Epic 5: Weekly Commitment Tracker & Exposure Therapy (The "Accountability Partner")
+## Epic 6: Weekly Commitment Tracker & Exposure Therapy (The "Accountability Partner")
 
 The developer can define weekly job application targets and learning goals, logging their progress by linking real Git commits or applications. The dashboard enforces accountability by displaying missed targets prominently in red, helping the developer stay focused on the transition.
 
-### Story 5.1: Database Ledger Schema and REST Endpoints
+### Story 6.1: Database Ledger Schema and REST Endpoints
 
 As a developer,
 I want a database migration `V004__add_ledger.sql` that defines tables `commitments` and `actions` along with backend endpoints to CRUD commitments,
@@ -492,7 +581,7 @@ So that my weekly career goals and progress records are persisted.
 **And** `backend/routers/ledger.py` exposes REST endpoints `GET /api/v1/ledger`, `POST /api/v1/ledger/commitments`, and `PUT /api/v1/ledger/commitments/{id}` (to link a commit or verify an action)
 **And** Pydantic schemas validate that commitments contain category (e.g. `applications`, `build`, `posts`), target count, target date, and status
 
-### Story 5.2: Interactive Accountability Ledger & Git Linker
+### Story 6.2: Interactive Accountability Ledger & Git Linker
 
 As a transitioning developer,
 I want a `/ledger` view that displays weekly goals formatted as "Active Directives" prescriptions, featuring a commit linker panel to link Git commits or applications,
@@ -507,7 +596,7 @@ So that I can verify my progress with hard evidence.
 **And** clicking `[LINK COMMIT]` opens a small toggle panel to paste a Git commit hash or enter application details
 **And** submitting a valid hash triggers a loading animation that updates the row to a mint green verified state with status `✓ [PATHWAY VERIFIED]`
 
-### Story 5.3: Visual Alerts for Overdue Commitments
+### Story 6.3: Visual Alerts for Overdue Commitments
 
 As a transitioning developer,
 I want the dashboard and ledger views to highlight commitments missed for 2 or more consecutive weeks in warning crimson, pinning them to the top of the dashboard,
@@ -521,7 +610,7 @@ So that I cannot avoid or hide from my missed commitments.
 **And** if a commitment has been missed for 2 or more consecutive weeks, the ledger row is styled in crimson and pinned to the top of the dashboard
 **And** a soft warning nudge displays a button: `▲ [ACTIVATE 15-MIN FALLBACK PIVOT]` to quickly resolve the gap
 
-### Story 5.4: Public Loop B Progress Logs
+### Story 6.4: Public Loop B Progress Logs
 
 As a developer,
 I want a public URL `/loop-b` (and `loop-b-log.md` committed to the repo) that logs weekly Loop B execution metrics (applications filed, interviews, voice notes, LinkedIn posts),
@@ -534,7 +623,6 @@ So that hiring managers can verify my consistent job-search activity in a 90-sec
 **Then** the UI renders a publicly accessible log of all Loop B weekly metrics (applications, interviews, voice notes, LinkedIn posts) loaded from `loop-b-log.md` or a database
 **And** a link is provided to open `loop-b-log.md` directly in the GitHub repository
 **And** each weekly row includes links to public commits or LinkedIn posts, proving consistent build-in-public progression.
-
 
 
 

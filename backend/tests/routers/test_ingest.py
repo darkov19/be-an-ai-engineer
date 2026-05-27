@@ -6,14 +6,17 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 
 from backend.utils.tasks import task_manager
-from backend.routers.ingest import run_ingestion_task, dump_logs_to_file
+from backend.routers.ingest import ingest_csv, run_ingestion_task, run_source_discovery_task, dump_logs_to_file
 
 @pytest.mark.asyncio
 async def test_post_ingest_success(app, client):
     mock_pool = MagicMock()
     app.state.pool = mock_pool
 
-    with patch("backend.routers.ingest.run_ingestion_task", new_callable=AsyncMock) as mock_run:
+    async def noop_ingestion_task(*args, **kwargs):
+        return None
+
+    with patch("backend.routers.ingest.run_ingestion_task", new=noop_ingestion_task):
         response = await client.post("/api/v1/ingest", json={"company_slug": "stripe"})
         assert response.status_code == 202
         data = response.json()
@@ -30,6 +33,31 @@ async def test_post_ingest_success(app, client):
 async def test_post_ingest_no_pool(app, client):
     app.state.pool = None
     response = await client.post("/api/v1/ingest", json={"company_slug": "stripe"})
+    assert response.status_code == 500
+    data = response.json()
+    assert data["code"] == "DB_CONNECTION_ERROR"
+
+
+@pytest.mark.asyncio
+async def test_post_discover_sources_success(app, client):
+    mock_pool = MagicMock()
+    app.state.pool = mock_pool
+
+    async def noop_source_discovery_task(*args, **kwargs):
+        return None
+
+    with patch("backend.routers.ingest.run_source_discovery_task", new=noop_source_discovery_task):
+        response = await client.post("/api/v1/ingest/discover-sources")
+        assert response.status_code == 202
+        data = response.json()
+        assert "task_id" in data
+        task_manager.cleanup(data["task_id"])
+
+
+@pytest.mark.asyncio
+async def test_post_discover_sources_no_pool(app, client):
+    app.state.pool = None
+    response = await client.post("/api/v1/ingest/discover-sources")
     assert response.status_code == 500
     data = response.json()
     assert data["code"] == "DB_CONNECTION_ERROR"
@@ -91,6 +119,35 @@ async def test_run_ingestion_task_success():
         assert logs[1]["event"] == "Background ingestion task completed successfully"
         assert logs[2]["control_type"] == "completed"
         assert logs[2]["summary"] == mock_summary
+
+    task_manager.cleanup(task_id)
+
+
+@pytest.mark.asyncio
+async def test_run_source_discovery_task_success():
+    task_id = "test-source-discovery-success"
+    task_manager.register_task(task_id)
+    mock_pool = MagicMock()
+    mock_result = MagicMock(
+        candidate_count=2,
+        validated_count=1,
+        rejected_count=1,
+        error_count=0,
+        unsupported_url_count=1,
+        report_path="report.json",
+    )
+
+    with patch("backend.routers.ingest.discover_sources", new_callable=AsyncMock, return_value=mock_result):
+        await run_source_discovery_task(task_id, mock_pool)
+        await asyncio.sleep(0.01)
+
+        queue = task_manager.get_queue(task_id)
+        logs = []
+        while not queue.empty():
+            logs.append(queue.get_nowait())
+
+        assert logs[-1]["control_type"] == "completed"
+        assert logs[-1]["summary"]["validated_count"] == 1
 
     task_manager.cleanup(task_id)
 
@@ -251,6 +308,82 @@ class MockIngestPool:
     def connection(self):
         return self
 
+
+class MockSourceListCursor:
+    def __init__(self):
+        self.execute_count = 0
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, query, vars=None):
+        self.execute_count += 1
+
+    async def fetchall(self):
+        if self.execute_count == 1:
+            return [
+                (
+                    "Stripe",
+                    "greenhouse",
+                    "stripe",
+                    "https://boards.greenhouse.io/stripe",
+                    "seed_file",
+                    "validated",
+                    True,
+                    3,
+                    3,
+                    None,
+                    None,
+                    {"source_urls": ["https://boards.greenhouse.io/stripe"]},
+                )
+            ]
+        return [
+            (
+                "https://example.com/careers",
+                "Example",
+                None,
+                None,
+                "seed_file",
+                "rejected",
+                "unsupported_or_no_ats_detected",
+                None,
+                {},
+                None,
+            )
+        ]
+
+
+class MockSourceListConnection:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def cursor(self):
+        return MockSourceListCursor()
+
+
+class MockSourceListPool:
+    def connection(self):
+        return MockSourceListConnection()
+
+
+@pytest.mark.asyncio
+async def test_get_ingest_sources_lists_registry_diagnostics(app, client):
+    app.state.pool = MockSourceListPool()
+
+    response = await client.get("/api/v1/ingest/sources")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sources"][0]["ats"] == "greenhouse"
+    assert data["sources"][0]["active"] is True
+    assert data["rejected_candidates"][0]["rejection_reason"] == "unsupported_or_no_ats_detected"
+
 @pytest.mark.asyncio
 async def test_ingest_csv_success(app, client):
     # Setup mock db pool
@@ -288,15 +421,16 @@ async def test_ingest_csv_invalid_extension(app, client):
 
 @pytest.mark.asyncio
 async def test_ingest_csv_payload_too_large(app, client):
-    mock_pool = MockIngestPool([])
-    app.state.pool = mock_pool
+    class OversizedUpload:
+        filename = "jobs.csv"
+        size = (5 * 1024 * 1024) + 1
 
-    # 6MB of content to trigger size limit of 5MB
-    large_content = "a" * (6 * 1024 * 1024)
-    files = {"file": ("jobs.csv", large_content, "text/csv")}
-    response = await client.post("/api/v1/ingest/csv", files=files)
+        async def read(self, size=-1):
+            raise AssertionError("Oversized uploads should be rejected before reading the body")
+
+    response = await ingest_csv(file=OversizedUpload(), conn=MagicMock())
     assert response.status_code == 413
-    data = response.json()
+    data = json.loads(response.body)
     assert data["code"] == "FILE_TOO_LARGE"
 
 @pytest.mark.asyncio

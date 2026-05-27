@@ -13,6 +13,7 @@ import psycopg
 from backend.db.connection import get_db
 from backend.utils.tasks import task_manager, active_task_id
 from backend.services.parser import run_full_ingestion
+from backend.services.source_discovery import discover_sources
 
 router = APIRouter()
 logger = structlog.get_logger()
@@ -107,6 +108,39 @@ async def run_ingestion_task(task_id: str, pool, config: Optional[dict]):
     finally:
         task_manager.finish_task(task_id)
 
+
+async def run_source_discovery_task(task_id: str, pool):
+    """
+    Background task wrapper for ATS source discovery using the same task/SSE
+    infrastructure as ingestion.
+    """
+    active_task_id.set(task_id)
+    logger.info("Background source discovery task started", task_id=task_id)
+
+    try:
+        result = await asyncio.wait_for(discover_sources(pool), timeout=1800.0)
+        summary = {
+            "candidate_count": result.candidate_count,
+            "validated_count": result.validated_count,
+            "rejected_count": result.rejected_count,
+            "error_count": result.error_count,
+            "unsupported_url_count": result.unsupported_url_count,
+            "report_path": result.report_path,
+        }
+        logger.info("Background source discovery task completed successfully", task_id=task_id, **summary)
+        task_manager.enqueue_log(task_id, {
+            "control_type": "completed",
+            "summary": summary,
+        })
+    except Exception as exc:
+        logger.error("Background source discovery task failed with exception", task_id=task_id, error=str(exc))
+        task_manager.enqueue_log(task_id, {
+            "control_type": "failed",
+            "error": str(exc),
+        })
+    finally:
+        task_manager.finish_task(task_id)
+
 @router.post("/ingest", status_code=status.HTTP_202_ACCEPTED)
 async def start_ingestion(
     request: Request,
@@ -151,6 +185,92 @@ async def start_ingestion(
     )
 
     return {"task_id": task_id}
+
+
+@router.post("/ingest/discover-sources", status_code=status.HTTP_202_ACCEPTED)
+async def start_source_discovery(request: Request, background_tasks: BackgroundTasks):
+    """
+    Triggers asynchronous source discovery and validation.
+    """
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        logger.error("Database connection pool not found in app state")
+        raise RuntimeError("Database pool not initialized")
+
+    task_id = str(uuid.uuid4())
+    task_manager.register_task(task_id)
+    background_tasks.add_task(run_source_discovery_task, task_id=task_id, pool=pool)
+    return {"task_id": task_id}
+
+
+@router.get("/ingest/sources")
+async def list_ingest_sources(request: Request):
+    """
+    Returns active and rejected source registry rows for coverage diagnostics.
+    """
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        logger.error("Database connection pool not found in app state")
+        raise RuntimeError("Database pool not initialized")
+
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT company, ats, slug, source_url, discovery_method, validation_status,
+                       active, job_count, usable_job_count, last_validated_at, last_error, metadata
+                FROM job_sources
+                ORDER BY active DESC, ats, slug
+                """
+            )
+            source_rows = await cur.fetchall()
+
+            await cur.execute(
+                """
+                SELECT raw_url, company_hint, detected_ats, detected_slug, discovery_method,
+                       validation_status, rejection_reason, last_error, metadata, created_at
+                FROM job_source_candidates
+                WHERE validation_status IN ('rejected', 'error')
+                ORDER BY created_at DESC
+                LIMIT 200
+                """
+            )
+            candidate_rows = await cur.fetchall()
+
+    return {
+        "sources": [
+            {
+                "company": row[0],
+                "ats": row[1],
+                "slug": row[2],
+                "source_url": row[3],
+                "discovery_method": row[4],
+                "validation_status": row[5],
+                "active": row[6],
+                "job_count": row[7],
+                "usable_job_count": row[8],
+                "last_validated_at": row[9],
+                "last_error": row[10],
+                "metadata": row[11],
+            }
+            for row in source_rows
+        ],
+        "rejected_candidates": [
+            {
+                "raw_url": row[0],
+                "company_hint": row[1],
+                "detected_ats": row[2],
+                "detected_slug": row[3],
+                "discovery_method": row[4],
+                "validation_status": row[5],
+                "rejection_reason": row[6],
+                "last_error": row[7],
+                "metadata": row[8],
+                "created_at": row[9],
+            }
+            for row in candidate_rows
+        ],
+    }
 
 @router.get("/tasks/{task_id}/logs/stream")
 async def stream_task_logs(task_id: str):
@@ -240,6 +360,12 @@ async def ingest_csv(
 
     start_time = datetime.now()
     max_size = 5 * 1024 * 1024  # 5MB limit
+    if file.size is not None and file.size > max_size:
+        return JSONResponse(
+            status_code=413,
+            content={"error": True, "code": "FILE_TOO_LARGE", "detail": "File size exceeds 5MB limit."}
+        )
+
     size = 0
     contents = bytearray()
 

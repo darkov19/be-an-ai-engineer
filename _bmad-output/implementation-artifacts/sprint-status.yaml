@@ -1,5 +1,5 @@
 # generated: 2026-05-26T19:38:26+05:30
-# last_updated: 2026-05-27T15:18:45+05:30
+# last_updated: 2026-05-27T19:20:36+05:30
 # project: be-an-ai-engineer
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-26T19:38:26+05:30
-last_updated: 2026-05-27T15:18:45+05:30
+last_updated: 2026-05-27T19:20:36+05:30
 project: be-an-ai-engineer
 project_key: NOKEY
 tracking_system: file-system
@@ -53,27 +53,34 @@ development_status:
   2-2-fastapi-background-task-service-and-sse-log-stream: done
   2-3-live-log-ingest-dashboard-with-drag-drop-csv-fallback: done
   2-4-scheduled-ingestion-cron-and-diagnostic-alerts: done
-  2-5-automated-ats-source-discovery-and-registry: ready-for-dev
+  2-5-automated-ats-source-discovery-and-registry: done
   epic-2-retrospective: done
 
   epic-3: backlog
-  3-1-llm-structured-extraction-and-proxy-verification: backlog
-  3-2-labeled-eval-set-management-and-accuracy-audits: backlog
-  3-3-interactive-evals-dashboard-and-regression-charts: backlog
-  3-4-kill-criterion-enforcement-and-warning-banner: backlog
+  3-1-company-signals-and-canonical-source-resolver: backlog
+  3-2-google-and-wellfound-direct-hiring-signal-providers: backlog
+  3-3-common-crawl-yc-and-vc-scale-discovery-providers: backlog
+  3-4-long-tail-signals-and-provider-yield-reporting: backlog
   epic-3-retrospective: optional
 
   epic-4: backlog
-  4-1-analytical-query-processor-and-geo-segmentation: backlog
-  4-2-volumetric-brain-visualizer-and-ecg-telemetry-chart: backlog
-  4-3-geo-segmented-market-analysis-and-skill-gap-diff: backlog
-  4-4-company-stack-fingerprint-and-interview-screen-share-view: backlog
-  4-5-archive-index-and-social-sharing: backlog
+  4-1-llm-structured-extraction-and-proxy-verification: backlog
+  4-2-labeled-eval-set-management-and-accuracy-audits: backlog
+  4-3-interactive-evals-dashboard-and-regression-charts: backlog
+  4-4-kill-criterion-enforcement-and-warning-banner: backlog
   epic-4-retrospective: optional
 
   epic-5: backlog
-  5-1-database-ledger-schema-and-rest-endpoints: backlog
-  5-2-interactive-accountability-ledger-and-git-linker: backlog
-  5-3-visual-alerts-for-overdue-commitments: backlog
-  5-4-public-loop-b-progress-logs: backlog
+  5-1-analytical-query-processor-and-geo-segmentation: backlog
+  5-2-volumetric-brain-visualizer-and-ecg-telemetry-chart: backlog
+  5-3-geo-segmented-market-analysis-and-skill-gap-diff: backlog
+  5-4-company-stack-fingerprint-and-interview-screen-share-view: backlog
+  5-5-archive-index-and-social-sharing: backlog
   epic-5-retrospective: optional
+
+  epic-6: backlog
+  6-1-database-ledger-schema-and-rest-endpoints: backlog
+  6-2-interactive-accountability-ledger-and-git-linker: backlog
+  6-3-visual-alerts-for-overdue-commitments: backlog
+  6-4-public-loop-b-progress-logs: backlog
+  epic-6-retrospective: optional

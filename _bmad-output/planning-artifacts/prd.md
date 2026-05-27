@@ -16,11 +16,12 @@ classification:
   complexity: medium
   projectContext: greenfield
 carryForward:
-  - "Week-0 empirical spike: visit 15 India AI company careers pages, note ATS used, update seed list before writing ingest code."
-  - "Week-2 time-boxed JobSpy spike (2 hours): measure LinkedIn+Indeed unique-posting yield via python-jobspy, single IP, decision rule ≥30% unique + no rate limit → include as secondary source."
-  - "Seed-50 list constraint: must include ~15 India AI product + captive-center slots, and ~20 early-stage (YC-batch / seed) slots, to prevent enterprise-skill overweighting bias."
+  - "Week-0 empirical spike: visit 15 India AI company careers pages, note ATS used, and record source-registry/manual-hint evidence before scaling ingest."
+  - "Company Radar correction: discover hiring companies from signals, then validate jobs only at employer/canonical ATS sources before adding active corpus rows."
+  - "Discovery provider constraint: Google only through Custom Search JSON API; Wellfound as constrained company-signal provider; LinkedIn/Indeed manual signals only; no RapidAPI job API dependency."
+  - "Company coverage constraint: include India AI product/captive-center companies and early-stage AI startups to prevent enterprise-skill overweighting bias."
   - "Weekly report output must be geo-segmented (US/EU remote rankings vs India-based AI product rankings side-by-side)."
-  - "Known corpus biases to document in Scope/Risks section later: Wellfound-only postings, LinkedIn-only recruiter posts (covered by Loop B not ingest), FAANG/Workday roles, Indian services/consultancies (deliberately excluded), enterprise-skill overweighting risk."
+  - "Known corpus biases to document in Scope/Risks section later: marketplace-only postings, LinkedIn-only recruiter posts (covered by Loop B not ingest), FAANG/Workday roles, Indian services/consultancies (deliberately excluded), enterprise-skill overweighting risk."
   - "Evals harness must be framed as the primary craft-signal surface of the project, not a minor engineering checkbox — competitive differentiation has shifted to rigorous measurement on a narrow niche."
 ---
 
@@ -58,7 +59,7 @@ carryForward:
 
 **6. Operational discipline as a named differentiator.** The reliance on a zero-cost local Hermes proxy tunneling through the developer's Codex subscription replaces standard API spend. This shifts the engineering focus from cloud billing to proxy connection health, local prompt optimization, and robustness against connection drops. Production instincts (handling rate limits, proxy disconnects, and validating JSON schemas) are baked in by local resource constraints. This is exactly the signal AI hiring managers in 2026 are filtering for: the brief's research confirms *"production instincts (error handling, evals, deployment, structured outputs, connection health) signal harder than novelty."*
 
-**7. Ingest discipline is a soft rule, not a dogma.** Sources are chosen on a **free-public-API-first rule**: if a source offers a documented unauthenticated endpoint, it is in core ingest; if it requires scraping, it is out of MVP-core but eligible for a time-boxed spike (with a documented decision rule — e.g., the Week-2 JobSpy spike targeting LinkedIn/Indeed) where the marginal signal justifies the reliability and ToS-exposure cost. The governing criterion is not *"public vs. scraped"* — it is *"marginal unique signal ÷ (maintenance cost + ToS exposure + budget burn)."* This framing is defensible in an interview: a reviewer asking *"why didn't you just use JobSpy?"* gets a crisp answer — *"I ran the spike. Here's what it showed. Here's why I kept / dropped it."*
+**7. Ingest discipline is a source-of-truth rule, not a dogma.** Distribution platforms (Google, LinkedIn, Indeed, Wellfound) are useful signals for which companies may be hiring, but the trusted corpus must come from canonical company or ATS sources. The governing criterion is not *"public vs. scraped"* — it is *"validated canonical signal ÷ (maintenance cost + ToS exposure + budget burn)."* Google may be used only through the official Custom Search JSON API. Wellfound may be used as a constrained company-signal source, not as trusted job corpus data. LinkedIn and Indeed remain manual-signal surfaces only. A reviewer asking *"why didn't you just scrape LinkedIn?"* gets a crisp answer: *"I discover companies from signals, then validate jobs at the employer/ATS source."*
 
 ## Project Classification
 
@@ -69,9 +70,10 @@ carryForward:
 | **Complexity** | Medium. Domain complexity is low; technical complexity is medium (LLM structured extraction, pgvector retrieval, cost-capped batching, evals harness, dual-loop execution as a product constraint). |
 | **Project Context** | Greenfield. No existing codebase. Public GitHub repository from Day 1. |
 | **Scope ceiling** | 4-week MVP. Single user. One weekly skill-gap report as the primary output artifact. |
-| **Primary ingest sources (MVP core)** | Greenhouse, Lever, Ashby, **Workable, Recruitee, Personio** (all free public ATS APIs), **Y Combinator `workatastartup.com`** (public API), HN "Who's Hiring" monthly thread parser |
-| **Secondary ingest (Week-2 experimental spike)** | JobSpy (LinkedIn + Indeed + Glassdoor + Google + ZipRecruiter) — included only if the 2-hour spike produces ≥30% unique AI-engineering postings with no immediate single-IP rate limit |
-| **Out of MVP scope (deferred to Vision)** | Wellfound (no public API — scraper-gated), Naukri (same), LinkedIn direct, Workday-hosted boards (FAANG / enterprise — maintenance tax too high), multi-user / accounts / auth / billing / chatbot UI, Interview Prep Agent, Resume Tailoring Agent, Content Pipeline Agent, Studio Aalekh integration |
+| **Primary ingest sources (MVP core)** | Validated canonical sources only: Greenhouse, Lever, Ashby, **Workable, Recruitee, Personio**, company `JobPosting` JSON-LD where supported, and registry-backed sources discovered from HN, Google Custom Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit |
+| **Signal providers** | HN "Who's Hiring", Google Custom Search JSON API, constrained Wellfound company signals, Common Crawl ATS index, YC company directory, VC portfolio pages, GitHub organization metadata, Reddit hiring posts |
+| **Constrained / excluded ingest surfaces** | LinkedIn and Indeed are not automated providers; Google result pages and Google Jobs are not scraped; Wellfound job text is not trusted corpus data; RapidAPI-style job APIs are excluded from the main pipeline |
+| **Out of MVP scope (deferred to Vision)** | Naukri, Workday-hosted enterprise boards unless surfaced through canonical validation, multi-user / accounts / auth / billing / chatbot UI, Interview Prep Agent, Resume Tailoring Agent, Content Pipeline Agent, Studio Aalekh integration |
 | **Explicit non-goals** | Not a SaaS. Not a job scraper product. Not an auto-apply bot. Not a generic resume tool. Not a job marketplace. |
 
 ## Success Criteria
@@ -106,14 +108,14 @@ The project also has an independent success criterion: **it must function as a c
 | **Report generation automation** | Weekly report runs without manual intervention by end of Week 4 | Manual-only beyond Week 4 | Cron / scheduled workflow run logs |
 | **Public repo visibility** | Day 1, honest README, commit history visible | Non-negotiable | GitHub visibility check |
 | **Weekly report segmentation** | Report shows top-10 skills for US/EU remote segment AND top-10 for India-based AI product segment, side-by-side | Must be present in Week 4 output | Report HTML structure |
-| **Pre-Week-1 India empirical spike** | 15 India AI company careers pages visited, ATS recorded, seed list updated before ingest code is written | 1-hour binding task | Committed CSV + seed list diff |
-| **Week-2 JobSpy spike decision** | 2-hour time-boxed experiment produces a documented go/no-go decision in the repo README | Experiment must close with either outcome | README commit containing decision rule output |
+| **Pre-Week-1 India empirical spike** | 15 India AI company careers pages visited, ATS recorded, source registry/manual hints updated before ingest scales | 1-hour binding task | Committed CSV + registry/manual-hint diff |
+| **Week-2 Company Radar activation** | Company discovery registry, canonical resolver, Google Custom Search, and constrained Wellfound signal providers documented and queued | Must preserve canonical-source rule | Strategy doc + epic/story backlog |
 
 ### Leading Indicators — three-loop weekly tracker
 
 | Loop | Week 1 | Week 4 | Week 8 | Week 16 |
 |---|---|---|---|---|
-| **Build** | Repo public, ingest running on ≥5 companies across ≥2 ATSs, first extraction sample committed | MVP deployed, geo-segmented skill-gap report matches output spec, evals run with accuracy published, write-up posted | JobSpy spike resolved (in or out), corpus ≥500 postings, tool in maintenance not feature work | Tool in maintenance only; used weekly for personal interviews |
+| **Build** | Repo public, ingest running on ≥5 companies across ≥2 ATSs, first extraction sample committed | MVP deployed, geo-segmented skill-gap report matches output spec, evals run with accuracy published, write-up posted | Company Radar providers producing validated canonical sources, corpus ≥500 postings, tool in maintenance not feature work | Tool in maintenance only; used weekly for personal interviews |
 | **Interview** | **5 applications filed** (mix of US/EU remote + India-based AI product / captive), ≥2 from the seed-50 company list | 20 applications filed, first real interview completed | 40+ applications, first "didn't freeze the whole time" interview | Offer conversation in progress |
 | **Communicate** | First voice note recorded, first build-in-public LinkedIn post live (honest — includes the fear and the 4.5 years) | 4 LinkedIn posts live, 2 Looms recorded | First cold outreach DM sent to a hiring lead at a target company, using tool insight as the opener | First unsolicited inbound recruiter message received |
 
@@ -145,8 +147,8 @@ The project also has an independent success criterion: **it must function as a c
 
 - Visit the careers pages of 15 India-based AI companies: **Sarvam AI, Krutrim, Yellow.ai, Haptik, Qure.ai, Gnani.ai, ideaForge, Peak, Observe.ai, Niramai, SigTuple, Turing, Fractal**, plus 2 additional chosen in-session.
 - Record which ATS backs each company (Greenhouse / Lever / Ashby / Workable / Recruitee / Personio / Workday / in-house).
-- Companies on supported ATSs go into the ingest seed list. Companies on unsupported ATSs go into the Known Corpus Gaps doc.
-- **Output:** a committed 15-row CSV + seed-list diff. This replaces assumptions with evidence before any ingest code is written.
+- Companies on supported ATSs go into the source registry or manual-hint evidence file. Companies on unsupported ATSs go into the Known Corpus Gaps doc.
+- **Output:** a committed 15-row CSV + source-registry/manual-hint diff. This replaces assumptions with evidence before any ingest code is written.
 
 **Weeks 1–4 — ingest and extraction**
 
@@ -157,7 +159,7 @@ The project also has an independent success criterion: **it must function as a c
   - **Workable, Recruitee, Personio public APIs** — catches European and long-tail AI startups
   - **Y Combinator `workatastartup.com` public API** — closes the early-stage AI startup gap
   - HN "Who's Hiring" monthly thread parser
-- **Seed-50 company list constraints (product decisions, not code):**
+- **Company coverage constraints (product decisions, not code):**
   - ~20 US/EU AI-forward companies (Anthropic, OpenAI, Perplexity, Vercel, LangChain, Cohere, Mistral, Scale, Replit, Hugging Face, etc.)
   - ~15 India-based AI product companies and foreign AI captive centers in India (derived from Week 0 empirical spike)
   - ~15 early-stage (pre-seed, seed, YC-batch) AI startups to prevent enterprise-skill overweighting bias
@@ -171,14 +173,15 @@ The project also has an independent success criterion: **it must function as a c
 - **Public GitHub repo:** Day 1. Honest README. Commit history visible throughout.
 - **Public write-up:** End of Week 4. LinkedIn + personal blog post. Results + what's broken + eval methodology.
 
-**Week 2 — JobSpy experimental spike (time-boxed 2 hours)**
+**Course-corrected company discovery layer — inserted before extraction scale-up**
 
-- `pip install python-jobspy`. Run one LinkedIn query + one Indeed query for AI / LLM Engineer roles, limit 50 postings each, single IP, no proxies.
-- Measure: unique-posting yield vs. existing ATS corpus, dedup rate, whether LinkedIn rate-limits on first run.
-- **Decision rule:**
-  - **≥30% unique postings + no immediate rate limit** → include JobSpy as a Week 3 secondary ingest source with reliability disclaimer. Ensure proxy connection throughput supports processing extra postings without disconnects.
-  - **<30% unique OR immediate rate-limit OR proxy required** → defer permanently. Document spike result in repo README.
-- Either outcome is published as part of the write-up — the documented decision itself is a craft-signal artifact.
+- Store company discovery signals with provider, evidence URL, confidence/category hints, status, and rejection reason.
+- Resolve discovered companies through canonical company paths only: `/careers`, `/jobs`, `/join-us`, `/work-with-us`, `/company/careers`, declared sitemaps, supported ATS links, and `JobPosting` JSON-LD.
+- Add Google Custom Search as an optional official-API provider only; default cap is 100 queries/day and no paid usage unless explicitly enabled.
+- Add Wellfound as a constrained company-signal provider only; no login, no browser automation, no pagination crawling, no disallowed `/_jobs/` crawling, and no direct Wellfound job-text ingestion.
+- Add Common Crawl ATS index discovery for supported ATS URL patterns, with hard caps and `(ats, slug)` deduplication.
+- Add YC, VC portfolio, GitHub, and Reddit signal providers after the resolver exists.
+- Weekly ingestion still reads only active validated rows from `job_sources`.
 
 **Loop B — parallel execution from Week 1 (binding, not optional companion)**
 
@@ -200,15 +203,15 @@ These are **not MVP scope** and must not leak into Weeks 1–4.
 - **Cover note generation (Scenario 4 from the brief).** Diffs a specific posting against user profile, generates evidence-first application bullets.
 - **Weekly "State of AI Hiring" auto-post.** Corpus delta → LinkedIn post, auto-generated. Distribution flywheel on one cron job.
 - **Public Hugging Face dataset.** Weekly update. Inbound researcher traffic, citation surface.
-- **JobSpy integration in production** — only if the Week 2 spike cleared the ≥30% threshold.
+- **Provider quality expansion** — improve canonical-source discovery coverage from Google, Wellfound, Common Crawl, YC, VC portfolios, GitHub, and Reddit without turning marketplaces into trusted job corpus sources.
 
 ### Vision — Post-Hire (Month 3+)
 
 - **Unified personal AI platform.** Shared backend across Job Intelligence + Interview Prep + Cover Note + Content Pipeline. The bottom-up, earned version of the original 9-module idea brief.
 - **Content Pipeline Agent.** Git commits → LinkedIn post drafts → distribution queue. Closes the build-in-public loop without manual content effort.
 - **Studio Aalekh integration.** Art catalog, pricing agent, client chatbot. Month 3+ post-hire territory (currently too data-raw per the brief).
-- **Open-source artifact for other backend-to-AI transitioners.** Honest documentation, templated seed list, reusable eval harness.
-- **Wellfound / Naukri / Workday ingest via paid scrapers** — only if, post-hire, the maintenance cost is justified by a use case that did not exist during MVP.
+- **Open-source artifact for other backend-to-AI transitioners.** Honest documentation, optional seed/manual-hint template, reusable eval harness.
+- **Additional paid/permitted APIs** — only if, post-hire, the maintenance cost is justified by a use case that did not exist during MVP. Do not add paid scrapers for LinkedIn, Indeed, Wellfound, Naukri, or Workday unless compliant source access is confirmed and the canonical-source rule still holds.
 
 ## User Journeys
 
@@ -282,7 +285,7 @@ These are **not MVP scope** and must not leak into Weeks 1–4.
 **Week 8 retrospective beat.** By Week 8, Darko has offered the demo in 6 interviews. 3 accepted, 3 declined politely. None produced the freeze. Two of the interviews moved to final round. One rejected him after the demo with the comment *"cute but not production scale"* — which he logged as evidence for the Red Team attack he'd already anticipated in the PRD, and which informed a Week-9 improvement to the fingerprint to emphasize extraction accuracy numbers alongside technology names.
 
 **Capabilities revealed:**
-- **On-demand single-company ingest** — MVP pipeline must be parameterized by company, not hardcoded to the seed list (architectural requirement that must not be precluded in Week 1)
+- **On-demand single-company ingest** — MVP pipeline must be parameterized by company/source, not hardcoded to a seed file (architectural requirement that must not be precluded in Week 1)
 - **Stack fingerprint one-screen view** (concrete spec: company · 5-bullet archetype summary · top-10 tech · one-sentence observation · legible in 10 seconds)
 - **Bandwidth-fallback local HTML cache** of the fingerprint — Growth → **MVP** (moved up)
 - **One-click "close and return to neutral state"** for the demo — MVP requirement
@@ -384,7 +387,7 @@ Concrete implication: the Week 0 pre-code spike must include a **resume-bullet r
 | 16 | CSV-fallback ingest path | J2 | **MVP** | Plumbed Week 1, not added later |
 | 17 | Auditable corpus-size + eval-accuracy metrics committed per run | J2, J4a | **MVP** | |
 | 18 | **README section explaining render-blocking design choice** ("I don't trust myself tired") | J2, J4a | **MVP** | Anti-performance-of-rigor signal |
-| 19 | Extraction pipeline parameterized by company (not baked to seed list) | J3 | **MVP (architectural)** | Must not be precluded in Week 1 — enables Growth single-company ingest |
+| 19 | Extraction pipeline parameterized by company/source (not baked to a seed file) | J3 | **MVP (architectural)** | Must not be precluded in Week 1 — enables Growth single-company ingest |
 | 20 | On-demand single-company ingest endpoint | J3 | **Growth** | Required for live demo use case |
 | 21 | **Stack fingerprint one-screen view** (concrete spec: company · 5-bullet archetype summary · top-10 tech · one-sentence observation) | J3 | **Growth** | Must be rehearse-able in 2 min to a non-technical listener |
 | 22 | **Bandwidth-fallback local HTML cache** of target company fingerprint | J3 | **MVP** | Moved from Growth → MVP by pre-mortem |
@@ -443,7 +446,7 @@ This section documents the full technical stack discovered across all previous P
 #### 1. Python Ingest Pipeline
 
 - **Runtime:** Python 3.11+, backend structured as a FastAPI service with routers and modular parsing adapters in `backend/services/parser.py`.
-- **Source adapters:** 8 source adapters, each parameterized by company slug (not hardcoded seed list): Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, YC WaaS, HN thread parser.
+- **Source adapters:** 8 source adapters, each parameterized by company slug/source reference (not hardcoded to a seed file): Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, YC WaaS, HN thread parser.
 - **Key constraint:** adapters must accept a company slug parameter so that on-demand single-company ingest (for the live interview demo) works without a different code path.
 - **Cron schedule:** Saturday morning IST (Friday evening UTC/US time) via APScheduler 4 in-process on the FastAPI backend.
 - **Run logging:** per-run corpus size, per-source count, extraction latency, and eval accuracy committed to the repo as a JSON artifact — auditable, not just dashboard-visible.
@@ -538,7 +541,7 @@ This section documents the full technical stack discovered across all previous P
 
 | Capability | Week target | Notes |
 |---|---|---|
-| Week 0 empirical spike: 15 India careers pages → ATS CSV | Week 0 | Blocking prerequisite for seed list |
+| Week 0 empirical spike: 15 India careers pages → ATS CSV | Week 0 | Blocking prerequisite for source registry/manual hints |
 | Week 0 resume-bullet ATS optimization pass | Week 0 | User action, not code |
 | 8-source ingest pipeline, parameterized by company | Week 1 | Architectural constraint — not hardcoded |
 | Local Postgres schema (postings, weekly_reports, profile, accountability_log, eval_samples) | Week 1 | Full schema migrated in Week 1 even if Growth columns are empty |
@@ -550,7 +553,10 @@ This section documents the full technical stack discovered across all previous P
 | 60/15 debug time-box with committed log | Week 2 | Bounds developer reflex |
 | Warning mode for ambiguous threshold breaches | Week 2 | Yellow banner, 7-day recovery window |
 | Delayed-handoff email (24h after kill, inline pivot template) | Week 2 | Resend free tier |
-| Week-2 JobSpy spike (2 hours, documented decision rule) | Week 2 | Either outcome is a craft-signal artifact |
+| Company discovery registry + canonical source resolver | Week 2 | Required before Google/Wellfound/YC/VC/GitHub/Reddit signals can safely activate sources |
+| Google Custom Search signal provider | Week 2 | Official API only, optional credentials, 100/day default cap |
+| Constrained Wellfound signal provider | Week 2 | Company/domain/evidence only; no trusted Wellfound job corpus |
+| Common Crawl ATS index provider | Week 3 | Direct ATS source discovery at scale with hard caps and validation |
 | Skill ranker + co-occurrence clusters + salary-stack correlations | Week 3 | Core product output |
 | Profile diff engine + profile freshness nudge (≥ 21 days stale) | Week 3 | |
 | Accountability ledger (Postgres table, commitments vs. actions, gap flags) | Week 3 | Renders below rankings — never hidden |
@@ -587,7 +593,7 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 | Cover note generation | Diff a specific posting against profile, generate evidence-first application bullets. |
 | Weekly "State of AI Hiring" auto-post | Corpus delta → LinkedIn post, auto-generated. Distribution flywheel on one cron job. |
 | Profile diff against single-company corpus | Required for cover note generation. |
-| JobSpy integration in production | Only if Week-2 spike cleared ≥30% unique threshold. |
+| Additional provider tuning | Improve Google query templates, Wellfound extraction constraints, Common Crawl caps, YC/VC/GitHub/Reddit yield, and source freshness scoring. |
 | Resume-bullet ATS optimization | Extract skills from user experience bullets, suggest optimized rewrites. Promoted from Vision → Growth per Resume Prerequisite section. |
 | pgvector embeddings populated | Column added in MVP schema; populated in Growth for semantic clustering. |
 | Public Hugging Face dataset | Weekly update. Inbound researcher traffic, citation surface. |
@@ -599,8 +605,8 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 | Unified personal AI platform | Shared backend across Job Intelligence + Interview Prep + Cover Note + Content Pipeline. The bottom-up earned version of the 9-module idea brief. |
 | Content Pipeline Agent | Git commits → LinkedIn post drafts → distribution queue. Closes the build-in-public loop without manual content effort. |
 | Studio Aalekh integration | Art catalog, pricing agent, client chatbot. Month 3+ post-hire territory. |
-| Open-source artifact for other backend-to-AI transitioners | Documented seed list template, reusable eval harness, honest case study. |
-| Wellfound / Naukri / Workday ingest via paid scrapers | Only if, post-hire, the maintenance cost is justified by a use case that did not exist during MVP. |
+| Open-source artifact for other backend-to-AI transitioners | Documented optional seed/manual-hint template, reusable eval harness, honest case study. |
+| Additional paid/permitted APIs | Only if, post-hire, the maintenance cost is justified by a use case that did not exist during MVP. No paid marketplace scraper becomes part of the trusted corpus unless compliant access is confirmed and canonical validation still holds. |
 | Multi-user / accounts / auth / billing | Not before there is evidence of demand from the Growth-phase public artifact. |
 
 ### Risk Mitigation Strategy
@@ -641,9 +647,20 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 - **FR4:** Pipeline can fetch job postings from the Workable, Recruitee, and Personio public APIs for any company slug
 - **FR5:** Pipeline can fetch job postings from the Y Combinator WaaS public API
 - **FR6:** Pipeline can parse the current HN "Who's Hiring" monthly thread and extract AI engineering postings
-- **FR7:** Pipeline can ingest postings for a single specified company on demand, outside the weekly seed-list run
+- **FR7:** Pipeline can ingest postings for a single specified company on demand, outside the weekly registry-backed run
 - **FR8:** Pipeline can fall back to a user-supplied CSV of postings when live ingest sources are unavailable or kill-criterion-frozen
 - **FR9:** Pipeline records per-source posting counts, run timestamp, and success/failure status per source per run
+
+### Company Discovery & Canonical Source Expansion
+
+- **FR48:** Pipeline can store company discovery signals from multiple providers, including company name, domain, evidence URL, provider name, confidence, and category hints
+- **FR49:** Pipeline can resolve discovered company domains to canonical careers or ATS sources using bounded careers paths, sitemap parsing, ATS URL detection, and `JobPosting` JSON-LD parsing
+- **FR50:** Pipeline can use Google Custom Search JSON API as an optional capped signal provider for careers and ATS page discovery without scraping Google result pages
+- **FR51:** Pipeline can use Wellfound as a constrained company-signal provider, extracting company/domain/evidence only and never treating Wellfound job text as trusted corpus data
+- **FR52:** Pipeline can query Common Crawl indexes for supported public ATS URL patterns, deduplicate ATS slugs, and validate candidates before activation
+- **FR53:** Pipeline can discover company signals from YC company directories and VC portfolio pages, then verify hiring through canonical company or ATS sources
+- **FR54:** Pipeline can discover lower-confidence company signals from GitHub organization metadata and Reddit hiring posts using official APIs where available
+- **FR55:** Discovery reports can compare provider yield, source freshness, active source growth, rejected reasons, and coverage gaps across all discovery providers
 
 ### Skill Extraction & Analysis
 
@@ -746,4 +763,3 @@ This product is not a broad public web service, but it has three specific access
 - **NFR-A1:** All color-coded report elements (skill rankings, gap flags, kill-criterion status) include text labels or icons alongside color — color is never the sole differentiator; contrast ratio ≥ 4.5:1 on all primary text (WCAG 2.1 Level AA for text, Level A overall)
 - **NFR-A2:** Report layout is legible during a Zoom screen-share at 1080p with the browser window occupying approximately half the screen (effective viewport width ≥ 640px) — the two-column geo-segmented layout must not collapse to an unreadable single column at this width
 - **NFR-A3:** The auto-generated OpenGraph static image displays the key headline number (profile fit score or top skill) in text legible at mobile thumbnail sizes (minimum 16px rendered equivalent at 375px width)
-
