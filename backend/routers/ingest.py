@@ -5,10 +5,12 @@ import json
 import structlog
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, BackgroundTasks, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, BackgroundTasks, Request, status, UploadFile, File, Depends
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel, Field
+import psycopg
 
+from backend.db.connection import get_db
 from backend.utils.tasks import task_manager, active_task_id
 from backend.services.parser import run_full_ingestion
 
@@ -202,3 +204,154 @@ async def stream_task_logs(task_id: str):
             "X-Accel-Buffering": "no"
         }
     )
+
+async def record_ingestion_run(conn, status: str, source_counts: dict, error_message: Optional[str], execution_time_seconds: float):
+    try:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                INSERT INTO ingestion_runs (status, source_counts, error_message, execution_time_seconds)
+                VALUES (%s, %s, %s, %s)
+                """,
+                (
+                    status,
+                    json.dumps(source_counts),
+                    error_message,
+                    execution_time_seconds
+                )
+            )
+    except Exception as e:
+        logger.error("Failed to record CSV ingestion run to telemetry database", error=str(e))
+
+@router.post("/ingest/csv")
+async def ingest_csv(
+    file: UploadFile = File(...),
+    conn: psycopg.AsyncConnection = Depends(get_db)
+):
+    """
+    Exposes POST /api/v1/ingest/csv accepting a multipart form upload file.
+    Validates file extension, size limit, and inserts parsed jobs into the jobs table.
+    """
+    if not file.filename or not file.filename.lower().endswith(".csv"):
+        return JSONResponse(
+            status_code=400,
+            content={"error": True, "code": "INVALID_FILE_TYPE", "detail": "File must have .csv extension."}
+        )
+
+    start_time = datetime.now()
+    max_size = 5 * 1024 * 1024  # 5MB limit
+    size = 0
+    contents = bytearray()
+
+    try:
+        while True:
+            chunk = await file.read(65536)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > max_size:
+                return JSONResponse(
+                    status_code=413,
+                    content={"error": True, "code": "FILE_TOO_LARGE", "detail": "File size exceeds 5MB limit."}
+                )
+            contents.extend(chunk)
+
+        csv_text = contents.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            csv_text = contents.decode("latin-1")
+        except Exception as e:
+            execution_time_seconds = (datetime.now() - start_time).total_seconds()
+            await record_ingestion_run(conn, "failure", {}, "Could not decode file content: " + str(e), execution_time_seconds)
+            return JSONResponse(
+                status_code=400,
+                content={"error": True, "code": "INVALID_ENCODING", "detail": "Could not decode file content."}
+            )
+    except Exception as e:
+        execution_time_seconds = (datetime.now() - start_time).total_seconds()
+        await record_ingestion_run(conn, "failure", {}, str(e), execution_time_seconds)
+        return JSONResponse(
+            status_code=500,
+            content={"error": True, "code": "INTERNAL_SERVER_ERROR", "detail": str(e)}
+        )
+
+    try:
+        import csv
+        import io
+        f = io.StringIO(csv_text)
+        reader = csv.DictReader(f)
+
+        if not reader.fieldnames:
+            await record_ingestion_run(conn, "failure", {}, "CSV file has no headers.", (datetime.now() - start_time).total_seconds())
+            return JSONResponse(
+                status_code=400,
+                content={"error": True, "code": "MALFORMED_CSV", "detail": "CSV file has no headers."}
+            )
+
+        required_headers = {"url", "title", "company", "raw_text"}
+        missing_headers = required_headers - set(reader.fieldnames)
+        if missing_headers:
+            err_msg = f"CSV is missing required headers: {', '.join(missing_headers)}"
+            await record_ingestion_run(conn, "failure", {}, err_msg, (datetime.now() - start_time).total_seconds())
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "error": True,
+                    "code": "MISSING_HEADERS",
+                    "detail": err_msg
+                }
+            )
+
+        imported_jobs = 0
+        skipped_jobs = 0
+
+        async with conn.transaction():
+            for row_idx, row in enumerate(reader, start=1):
+                url = (row.get("url") or "").strip()
+                title = (row.get("title") or "").strip()
+                company = (row.get("company") or "").strip()
+                raw_text = (row.get("raw_text") or "").strip()
+
+                # Validate required columns and URL structure
+                if not url or not title or not company or not raw_text or not (url.startswith("http://") or url.startswith("https://")):
+                    logger.warn("Skipping CSV row due to missing required columns or invalid URL pattern", row_index=row_idx, row=row)
+                    skipped_jobs += 1
+                    continue
+
+                location = row.get("location")
+                if location is not None:
+                    location = location.strip()
+                source_slug = (row.get("source_slug") or "").strip() or "csv"
+
+                async with conn.cursor() as cur:
+                    await cur.execute(
+                        """
+                        INSERT INTO jobs (url, title, company, location, raw_text, source_slug)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (url) DO NOTHING
+                        RETURNING id
+                        """,
+                        (url, title, company, location, raw_text, source_slug)
+                    )
+                    res = await cur.fetchone()
+                    if res and res[0] is not None:
+                        imported_jobs += 1
+                    else:
+                        logger.warn("Skipping duplicate job URL from CSV", url=url)
+                        skipped_jobs += 1
+
+        execution_time_seconds = (datetime.now() - start_time).total_seconds()
+        await record_ingestion_run(conn, "success", {"csv": imported_jobs}, None, execution_time_seconds)
+
+        return {
+            "status": "success",
+            "imported_jobs": imported_jobs,
+            "skipped_jobs": skipped_jobs
+        }
+    except Exception as e:
+        execution_time_seconds = (datetime.now() - start_time).total_seconds()
+        await record_ingestion_run(conn, "failure", {}, str(e), execution_time_seconds)
+        return JSONResponse(
+            status_code=500,
+            content={"error": True, "code": "INTERNAL_SERVER_ERROR", "detail": str(e)}
+        )

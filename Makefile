@@ -10,6 +10,7 @@ dev:
 
 test:
 	npm run test
+	npm run lint
 
 db-up:
 	docker-compose up -d

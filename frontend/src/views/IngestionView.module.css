@@ -1,0 +1,333 @@
+.viewGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+}
+
+@media (min-width: 992px) {
+  .viewGrid {
+    grid-template-columns: 1.2fr 0.8fr;
+  }
+}
+
+.cockpitHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-hud);
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+
+.ledContainer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.led {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background-color: #374151; /* Dim grey default */
+  transition: all 0.3s ease;
+}
+
+.ledScanning {
+  background-color: var(--glow-cyan);
+  box-shadow: 0 0 10px var(--glow-cyan), 0 0 20px hsla(180, 100%, 50%, 0.5);
+  animation: pulseLed 1.2s infinite alternate;
+}
+
+.ledCompleted {
+  background-color: var(--glow-green);
+  box-shadow: 0 0 10px var(--glow-green), 0 0 20px hsla(145, 80%, 45%, 0.5);
+}
+
+.ledFailed {
+  background-color: var(--glow-magenta);
+  box-shadow: 0 0 10px var(--glow-magenta), 0 0 20px hsla(325, 100%, 55%, 0.5);
+}
+
+.ledIdle {
+  background-color: #4b5563;
+  box-shadow: inset 0 0 4px #000;
+}
+
+@keyframes pulseLed {
+  from { opacity: 0.5; transform: scale(0.9); }
+  to { opacity: 1; transform: scale(1.1); }
+}
+
+.scanSection {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.scanControls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.btnScan {
+  background: transparent;
+  border: 1px solid var(--glow-cyan);
+  color: var(--glow-cyan);
+  padding: 10px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.05em;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 8px hsla(180, 100%, 50%, 0.15);
+}
+
+.btnScan:hover:not(:disabled) {
+  background: var(--glow-cyan);
+  color: var(--bg-cosmic);
+  box-shadow: 0 0 15px var(--glow-cyan);
+}
+
+.btnScan:disabled {
+  opacity: 0.5;
+  border-color: var(--border-hud);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.progressContainer {
+  flex-grow: 1;
+  background: hsla(240, 10%, 4%, 0.8);
+  border: 1px solid var(--border-hud);
+  height: 24px;
+  position: relative;
+  overflow: hidden;
+  border-radius: 2px;
+}
+
+.progressBar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--glow-cyan), var(--glow-purple));
+  width: 0%;
+  transition: width 0.3s ease;
+}
+
+.progressBarScanning {
+  width: 100%;
+  animation: scanningBar 2.5s infinite linear;
+}
+
+@keyframes scanningBar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+.progressText {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+
+/* Timeout slide-down banner styling */
+.timeoutBanner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: hsla(325, 100%, 55%, 0.1);
+  border: 1px solid var(--glow-magenta);
+  border-radius: 4px;
+  padding: 12px 16px;
+  color: var(--glow-magenta);
+  text-shadow: 0 0 8px hsla(325, 100%, 55%, 0.3);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  margin-bottom: 20px;
+  transform: translateY(-10px);
+  opacity: 0;
+  animation: slideDown 0.30s forwards cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDown {
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.bannerControls {
+  display: flex;
+  gap: 12px;
+}
+
+.btnBanner {
+  background: transparent;
+  border: 1px solid var(--glow-magenta);
+  color: var(--glow-magenta);
+  padding: 4px 10px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  transition: all 0.2s ease;
+}
+
+.btnBanner:hover {
+  background: var(--glow-magenta);
+  color: var(--bg-cosmic);
+  box-shadow: 0 0 10px var(--glow-magenta);
+}
+
+.btnBannerSecondary {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+}
+
+.btnBannerSecondary:hover {
+  background: var(--text-secondary);
+  color: var(--bg-cosmic);
+}
+
+/* Drag and drop fallback zone styling */
+.fallbackSection {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fallbackTitle {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.05em;
+}
+
+.dropzone {
+  position: relative;
+  border: 1px dashed var(--border-hud);
+  border-radius: 4px;
+  padding: 32px 16px;
+  text-align: center;
+  background: hsla(240, 10%, 6%, 0.4);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+.dropzone:hover {
+  border-color: var(--glow-purple);
+  background: hsla(240, 10%, 8%, 0.6);
+}
+
+.dropzoneActive {
+  border-color: var(--glow-green) !important;
+  background: hsla(145, 80%, 45%, 0.05) !important;
+}
+
+/* Green border sweep animation */
+.dropzoneActive::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  border: 2px solid transparent;
+  border-image: linear-gradient(90deg, var(--glow-green), hsla(145, 80%, 45%, 0.1), var(--glow-green)) 1;
+  background-size: 200% 100%;
+  animation: sweepAnim 2s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes sweepAnim {
+  0% { background-position: 0% 0%; }
+  100% { background-position: 200% 0%; }
+}
+
+.dropIcon {
+  font-size: 2rem;
+  color: var(--text-secondary);
+  transition: color 0.3s ease;
+}
+
+.dropzoneActive .dropIcon {
+  color: var(--glow-green);
+  animation: pulseIcon 1s infinite alternate;
+}
+
+@keyframes pulseIcon {
+  from { transform: scale(1); }
+  to { transform: scale(1.15); }
+}
+
+.dropTextPrimary {
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dropTextSecondary {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.fileInput {
+  display: none;
+}
+
+/* HUD feedback states styling */
+.hudFeedbackContainer {
+  margin-top: 12px;
+  background: hsla(240, 10%, 4%, 0.8);
+  border: 1px solid var(--border-hud);
+  padding: 8px 12px;
+  border-radius: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.hudFeedbackLabel {
+  color: var(--text-secondary);
+}
+
+.hudFeedbackValue {
+  font-weight: 700;
+}
+
+.feedbackCompiling {
+  color: var(--glow-purple);
+  text-shadow: 0 0 6px hsla(275, 100%, 60%, 0.3);
+}
+
+.feedbackSaved {
+  color: var(--glow-green);
+  text-shadow: 0 0 6px hsla(145, 80%, 45%, 0.3);
+}
+
+.feedbackError {
+  color: var(--glow-magenta);
+  text-shadow: 0 0 6px hsla(325, 100%, 55%, 0.3);
+}

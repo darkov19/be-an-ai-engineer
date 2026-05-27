@@ -15,7 +15,7 @@ export const ProfileView: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState('');
   const [lastUpdated, setLastUpdated] = useState<string | null>(null);
 
-  const timerRef = useRef<any>(null);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeRequestRef = useRef<AbortController | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
   const latestValuesRef = useRef({
@@ -136,13 +136,14 @@ export const ProfileView: React.FC = () => {
         setSaveStatus('saved');
         setLastUpdated(data.updated_at);
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
         // Silently ignore aborted requests
         return;
       }
+      const msg = err instanceof Error ? err.message : 'Network/Server connection failure.';
       setSaveStatus('error');
-      setErrorMessage(err.message || 'Network/Server connection failure.');
+      setErrorMessage(msg);
     } finally {
       if (activeRequestRef.current === controller) {
         activeRequestRef.current = null;

@@ -195,3 +195,165 @@ async def test_finish_task_delayed_cleanup():
     with patch("asyncio.sleep", new_callable=lambda: dummy_sleep):
         await task_manager._delayed_cleanup(task_id, delay=0.01)
         assert task_manager.get_queue(task_id) is None
+
+# Helper classes for database mocking in ingestion tests
+class MockIngestCursor:
+    def __init__(self, fetch_results=None):
+        self.fetch_results = fetch_results if fetch_results is not None else []
+        self.execute_calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, query, vars=None):
+        self.execute_calls.append((query, vars))
+
+    async def fetchone(self):
+        if self.fetch_results:
+            return self.fetch_results.pop(0)
+        return None
+
+class MockIngestTransaction:
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+class MockIngestConnection:
+    def __init__(self, fetch_results=None):
+        self.fetch_results = fetch_results
+        self.cursors = []
+
+    def cursor(self, *args, **kwargs):
+        cur = MockIngestCursor(self.fetch_results)
+        self.cursors.append(cur)
+        return cur
+
+    def transaction(self):
+        return MockIngestTransaction()
+
+class MockIngestPool:
+    def __init__(self, fetch_results=None):
+        self.fetch_results = fetch_results
+        self.connections = []
+
+    async def __aenter__(self):
+        conn = MockIngestConnection(self.fetch_results)
+        self.connections.append(conn)
+        return conn
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def connection(self):
+        return self
+
+@pytest.mark.asyncio
+async def test_ingest_csv_success(app, client):
+    # Setup mock db pool
+    # Returns (1,) for job insert, then no return for ingestion runs insert
+    mock_pool = MockIngestPool([(1,), None])
+    app.state.pool = mock_pool
+
+    csv_content = "url,title,company,location,raw_text,source_slug\nhttps://example.com/job1,Software Engineer,Acme Inc,Remote,Job description,csv"
+    files = {"file": ("jobs.csv", csv_content, "text/csv")}
+
+    response = await client.post("/api/v1/ingest/csv", files=files)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["imported_jobs"] == 1
+    assert data["skipped_jobs"] == 0
+
+    # Ensure execute calls were made
+    assert len(mock_pool.connections[0].cursors) == 2
+    # First is the job insertion
+    assert "INSERT INTO jobs" in mock_pool.connections[0].cursors[0].execute_calls[0][0]
+    # Second is the telemetry run logs
+    assert "INSERT INTO ingestion_runs" in mock_pool.connections[0].cursors[1].execute_calls[0][0]
+
+@pytest.mark.asyncio
+async def test_ingest_csv_invalid_extension(app, client):
+    mock_pool = MockIngestPool([])
+    app.state.pool = mock_pool
+
+    files = {"file": ("jobs.txt", "some text content", "text/plain")}
+    response = await client.post("/api/v1/ingest/csv", files=files)
+    assert response.status_code == 400
+    data = response.json()
+    assert data["code"] == "INVALID_FILE_TYPE"
+
+@pytest.mark.asyncio
+async def test_ingest_csv_payload_too_large(app, client):
+    mock_pool = MockIngestPool([])
+    app.state.pool = mock_pool
+
+    # 6MB of content to trigger size limit of 5MB
+    large_content = "a" * (6 * 1024 * 1024)
+    files = {"file": ("jobs.csv", large_content, "text/csv")}
+    response = await client.post("/api/v1/ingest/csv", files=files)
+    assert response.status_code == 413
+    data = response.json()
+    assert data["code"] == "FILE_TOO_LARGE"
+
+@pytest.mark.asyncio
+async def test_ingest_csv_skipped_rows(app, client):
+    # 2 rows: one is valid, one has missing required 'title'
+    mock_pool = MockIngestPool([(1,), None])
+    app.state.pool = mock_pool
+
+    csv_content = "url,title,company,location,raw_text,source_slug\nhttps://example.com/job1,Software Engineer,Acme Inc,Remote,Job description,csv\nhttps://example.com/job2,,Acme Inc,Remote,Job description,csv"
+    files = {"file": ("jobs.csv", csv_content, "text/csv")}
+
+    response = await client.post("/api/v1/ingest/csv", files=files)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["imported_jobs"] == 1
+    assert data["skipped_jobs"] == 1
+
+@pytest.mark.asyncio
+async def test_ingest_csv_duplicates(app, client):
+    # 2 valid rows: one gets inserted (returns ID), one is duplicate (returns None due to conflict)
+    mock_pool = MockIngestPool([(1,), None, None])
+    app.state.pool = mock_pool
+
+    csv_content = (
+        "url,title,company,location,raw_text,source_slug\n"
+        "https://example.com/job1,Software Engineer,Acme Inc,Remote,Job description,csv\n"
+        "https://example.com/job2,Software Engineer,Acme Inc,Remote,Job description,csv"
+    )
+    files = {"file": ("jobs.csv", csv_content, "text/csv")}
+
+    response = await client.post("/api/v1/ingest/csv", files=files)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["imported_jobs"] == 1
+    assert data["skipped_jobs"] == 1
+
+
+@pytest.mark.asyncio
+async def test_ingest_csv_invalid_url_pattern(app, client):
+    # 3 rows: one with valid URL, one with empty/whitespace URL, one with non-http URL
+    mock_pool = MockIngestPool([(1,), None, None])
+    app.state.pool = mock_pool
+
+    csv_content = (
+        "url,title,company,location,raw_text,source_slug\n"
+        "https://example.com/job1,Software Engineer,Acme Inc,Remote,Job description,csv\n"
+        "   ,Software Engineer,Acme Inc,Remote,Job description,csv\n"
+        "not-a-valid-url,Software Engineer,Acme Inc,Remote,Job description,csv"
+    )
+    files = {"file": ("jobs.csv", csv_content, "text/csv")}
+
+    response = await client.post("/api/v1/ingest/csv", files=files)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "success"
+    assert data["imported_jobs"] == 1
+    assert data["skipped_jobs"] == 2
+

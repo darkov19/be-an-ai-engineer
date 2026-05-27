@@ -1,0 +1,153 @@
+.terminalContainer {
+  display: flex;
+  flex-direction: column;
+  background: hsla(240, 16%, 1%, 0.95);
+  border: 1px solid var(--border-hud);
+  border-radius: 4px;
+  height: 380px;
+  font-family: var(--font-mono);
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+
+.controlBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: hsla(240, 10%, 4%, 0.8);
+  border-bottom: 1px solid var(--border-hud);
+  font-size: 0.75rem;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.lockLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lockCheckbox {
+  accent-color: var(--glow-cyan);
+  cursor: pointer;
+}
+
+.btn {
+  background: transparent;
+  border: 1px solid var(--border-hud);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  transition: all 0.2s ease;
+  text-transform: uppercase;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--glow-cyan);
+  color: var(--glow-cyan);
+  box-shadow: 0 0 6px hsla(180, 100%, 50%, 0.2);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btnPauseActive {
+  border-color: var(--glow-magenta);
+  color: var(--glow-magenta);
+}
+
+.btnPauseActive:hover {
+  border-color: var(--glow-magenta) !important;
+  color: var(--glow-magenta) !important;
+  box-shadow: 0 0 6px hsla(325, 100%, 55%, 0.2) !important;
+}
+
+.logArea {
+  flex-grow: 1;
+  padding: 16px;
+  overflow-y: auto;
+  font-size: 0.8rem;
+  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Custom scrollbar for terminal */
+.logArea::-webkit-scrollbar {
+  width: 6px;
+}
+
+.logArea::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.logArea::-webkit-scrollbar-thumb {
+  background: var(--border-hud);
+  border-radius: 3px;
+}
+
+.logArea::-webkit-scrollbar-thumb:hover {
+  background: var(--glow-cyan);
+}
+
+.logRow {
+  white-space: pre-wrap;
+  word-break: break-all;
+  border-left: 2px solid transparent;
+  padding-left: 8px;
+}
+
+.logInfo {
+  color: var(--glow-green);
+  text-shadow: 0 0 4px hsla(145, 80%, 45%, 0.2);
+  border-left-color: var(--glow-green);
+}
+
+.logWarn {
+  color: hsl(50, 100%, 50%);
+  text-shadow: 0 0 4px hsla(50, 100%, 50%, 0.2);
+  border-left-color: hsl(50, 100%, 50%);
+}
+
+.logError {
+  color: var(--glow-magenta);
+  text-shadow: 0 0 4px hsla(325, 100%, 55%, 0.2);
+  border-left-color: var(--glow-magenta);
+}
+
+.logSys {
+  color: var(--glow-cyan);
+  text-shadow: 0 0 4px hsla(180, 100%, 50%, 0.2);
+  border-left-color: var(--glow-cyan);
+}
+
+.logDefault {
+  color: var(--text-primary);
+  border-left-color: var(--text-secondary);
+}
+
+.bufferIndicator {
+  font-size: 0.7rem;
+  color: var(--glow-magenta);
+  animation: pulseBuffer 1.5s infinite;
+}
+
+@keyframes pulseBuffer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
