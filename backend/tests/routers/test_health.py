@@ -22,11 +22,15 @@ class MockConnection:
     def __init__(self, fetch_val):
         self.fetch_val = fetch_val
         self.cursors = []
+        self.execute_calls = []
 
     def cursor(self, *args, **kwargs):
         cur = MockCursor(self.fetch_val)
         self.cursors.append(cur)
         return cur
+
+    async def execute(self, query, vars=None):
+        self.execute_calls.append((query, vars))
 
 class MockPool:
     def __init__(self, fetch_val):
@@ -99,6 +103,41 @@ async def test_health_check_query_error(app, client):
 
     payload = response.json()
     assert "error" in payload
+    assert payload["error"] is True
+    assert payload["code"] == "DB_CONNECTION_ERROR"
+    assert "detail" in payload
+
+
+@pytest.mark.asyncio
+async def test_record_cockpit_access_success(app, client):
+    mock_pool = MockPool((1,))
+    app.state.pool = mock_pool
+
+    response = await client.post("/api/v1/cockpit/access")
+    assert response.status_code == 201
+    assert response.json()["ok"] is True
+    assert len(mock_pool.connections) == 1
+    assert "INSERT INTO cockpit_access_logs" in mock_pool.connections[0].execute_calls[0][0]
+
+
+@pytest.mark.asyncio
+async def test_record_cockpit_access_db_error_returns_structured_500(app, client):
+    class MockFailConnection(MockConnection):
+        async def execute(self, query, vars=None):
+            raise psycopg.OperationalError("insert failed")
+
+    class MockFailPool(MockPool):
+        async def __aenter__(self):
+            conn = MockFailConnection(self.fetch_val)
+            self.connections.append(conn)
+            return conn
+
+    mock_pool = MockFailPool((1,))
+    app.state.pool = mock_pool
+
+    response = await client.post("/api/v1/cockpit/access")
+    assert response.status_code == 500
+    payload = response.json()
     assert payload["error"] is True
     assert payload["code"] == "DB_CONNECTION_ERROR"
     assert "detail" in payload

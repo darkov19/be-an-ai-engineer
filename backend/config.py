@@ -7,6 +7,7 @@ class Settings(BaseSettings):
     # preventing the app from silently running with embedded credentials.
     database_url: str
     resend_api_key: str | None = None
+    alert_recipient_email: str = "onboarding@resend.dev"
     hermes_host: str = "127.0.0.1"
     hermes_port: int = 3000
     

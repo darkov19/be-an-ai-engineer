@@ -6,5 +6,6 @@
 
 - ~~**HN Algolia pagination**: `whoishiring` may not appear in the first results page.~~ **Resolved 2026-05-27** — fixed by adding `tags=story,author_whoishiring&hitsPerPage=1` to the Algolia query. Author tag pre-filters results; first hit is always the latest thread. No pagination needed.
 - **`company_slug.capitalize()` lossy for multi-word slugs**: Slugs like `open-ai` → `Open-ai`. Company display names will be inaccurate. Consider a slug-to-name mapping or title-case normalization.
-- **Default ingestion config uses live company slugs**: Hardcoded `"stripe"` / `"lever"` / `"cockroach"` slugs will silently fail if those boards go private or slugs change. Use mock/test slugs or configurable values.
+- **Default ingestion config uses live company slugs**: Hardcoded live ATS slugs can silently fail if boards go private or slugs change. Current defaults were refreshed on 2026-05-27 for the reliable live adapters, but they should still move to a maintained seed-list config.
+- **Workable default seed disabled**: Workable's public widget endpoint returned 403 responses and empty descriptions from the local verification environment on 2026-05-27. Keep the adapter implemented, but do not include Workable in scheduled defaults until a seed slug reliably returns non-empty `raw_text`.
 - **`updated_at` column has no update trigger**: The `jobs` table defines `updated_at` but no `UPDATE` logic exists yet. It will become stale when job status changes in future stories.

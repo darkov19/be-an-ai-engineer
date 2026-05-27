@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, cleanup, act } from '@testing-library/react';
 import { ProfileView } from './ProfileView';
 import { DashboardView } from './DashboardView';
 
@@ -86,7 +86,9 @@ describe('Profile Management & Freshness Monitor', () => {
     expect(screen.getByText(/\[COMPILING\.\.\.\]/i)).toBeInTheDocument();
 
     // Wait for the 250ms debounce time to run
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
 
     // Wait for saving indicators to show [SAVED]
     await waitFor(() => {
@@ -139,7 +141,9 @@ describe('Profile Management & Freshness Monitor', () => {
 
     // Trigger typing update
     fireEvent.change(screen.getByLabelText(/skills/i), { target: { value: 'React, @@@' } });
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
 
     // Wait for the error indicator
     await waitFor(() => {
@@ -162,6 +166,7 @@ describe('Profile Management & Freshness Monitor', () => {
         updated_at: staleDate.toISOString(),
       }),
     });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
 
     render(<DashboardView health={{ data: { status: 'healthy', database: 'connected', timestamp: 'now' } }} loading={false} />);
 
@@ -182,11 +187,14 @@ describe('Profile Management & Freshness Monitor', () => {
         updated_at: freshDate.toISOString(),
       }),
     });
+    mockFetch.mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) });
 
     render(<DashboardView health={{ data: { status: 'healthy', database: 'connected', timestamp: 'now' } }} loading={false} />);
 
     // Wait for potential rendering, then confirm banner is absent
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
     expect(screen.queryByText(/Profile is stale/i)).not.toBeInTheDocument();
   });
 });

@@ -40,6 +40,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
     fetchProfile();
   }, []);
 
+  useEffect(() => {
+    Promise.resolve(fetch('/api/v1/cockpit/access', { method: 'POST' })).catch((err) => {
+      console.error('Failed to record cockpit access:', err);
+    });
+  }, []);
+
   // Calculate if profile is stale (21+ days since last update)
   const isProfileStale = () => {
     if (!profileUpdatedAt) return false;

@@ -365,9 +365,9 @@ async def get_job(jobId: str):
 **Implementation Logic:**
 - **BackgroundTask Lifecycle**: The ingestion task is triggered via a POST request to `/api/v1/ingest`. FastAPI creates a `BackgroundTasks` entry. The task ID is returned immediately to the frontend.
 - **Log Buffering**: We utilize a thread-safe queue (`asyncio.Queue`) within the task service to store log messages in memory for the duration of the task.
-- **SSE Endpoint**: A GET endpoint `/api/v1/tasks/{task_id}/logs/stream` utilizes `EventSourceResponse` (from `sse-starlette`) to stream log events from the `asyncio.Queue` to the frontend.
+- **SSE Endpoint**: A GET endpoint `/api/v1/tasks/{task_id}/logs/stream` returns Starlette's native `StreamingResponse` with `media_type="text/event-stream"` and streams log events from the `asyncio.Queue` to the frontend. Do not add an external SSE package; the implemented dependency policy uses framework-native SSE formatting.
 - **Frontend Integration**: A custom hook `useSSE(taskId)` manages the connection state (connecting/disconnecting) and maintains an array of log objects in component state, enabling the live-scrolling terminal UI.
-- **Task Completion**: Once the ingestion process completes (or encounters a fatal error), the task service injects a special `{ "type": "task.completed" }` event into the stream, which signals the React frontend to close the connection and update the task status UI.
+- **Task Completion**: Once the ingestion process completes (or encounters a fatal error), the task service emits terminal control events as SSE records (`task.completed` or `task.failed`) so the React frontend can close the connection and update task status without polling.
 
 ## Project Structure & Boundaries
 
@@ -494,7 +494,7 @@ be-an-ai-engineer/
 **Feature/Epic Mapping:**
 - **Mission Control Dashboard**: Front-end components in `frontend/src/pages/Dashboard/`, API logic in `backend/routers/jobs.py` (analytics aggregation queries).
 - **Multi-Source Ingest**: Ingestion triggering in `frontend/src/pages/Ingest/`, routing logic in `backend/routers/ingest.py`, parsing functions in `backend/services/parser.py`.
-- **Structured Extraction**: LLM client in `backend/llm/client.py`, structured JSON schemas in `backend/llm/schemas.py`, proxy routing via Hermes.
+- **Structured Extraction**: LLM client in `backend/llm/client.py`, structured JSON schemas in `backend/llm/schemas.py`, proxy routing via Hermes, and first-class proxy health verification in `backend/llm/hermes.py`.
 - **Evaluation Harness**: UI dashboard in `frontend/src/pages/Evals/`, testing/comparison rules in `backend/services/evaluator.py`, endpoints in `backend/routers/evals.py`.
 - **Accountability Ledger**: Front-end layout in `frontend/src/pages/Ledger/`, backend queries in `backend/routers/ledger.py`.
 
@@ -637,5 +637,3 @@ be-an-ai-engineer/
 
 **First Implementation Priority:**
 - Initialize the Vite 8 frontend and setup Python virtual environment using the commands defined in the Starter Template section.
-
-

@@ -41,6 +41,19 @@ def test_strip_html_whitespace_collapse():
     assert strip_html(html) == expected
 
 
+def test_default_ingestion_config_covers_live_ats_sources():
+    from backend.services.parser import DEFAULT_INGESTION_CONFIG
+
+    assert DEFAULT_INGESTION_CONFIG == {
+        "greenhouse": ["stripe"],
+        "lever": ["employ"],
+        "ashby": ["sentry"],
+        "workable": [],
+        "recruitee": ["bunq"],
+        "personio": ["personio"],
+    }
+
+
 # =====================================================================
 # Unit Tests: XML Parsing Security
 # =====================================================================
@@ -159,6 +172,26 @@ async def test_fetch_lever_jobs(mock_get):
 
 @pytest.mark.asyncio
 @patch("httpx.AsyncClient.get")
+async def test_fetch_lever_jobs_title_falls_back_to_text(mock_get):
+    mock_get.return_value = MockResponse(json_data=[
+        {
+            "id": "lever-456",
+            "text": "AI Engineer - India",
+            "categories": {"location": "Bangalore, India"},
+            "description": "<p>Build LLM systems.</p>",
+            "lists": [],
+            "additional": "",
+            "hostedUrl": "https://jobs.lever.co/employ/lever-456"
+        }
+    ])
+
+    jobs = await fetch_lever_jobs("employ")
+
+    assert jobs[0]["title"] == "AI Engineer - India"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
 async def test_fetch_ashby_jobs(mock_get):
     mock_get.return_value = MockResponse(json_data={
         "jobs": [
@@ -264,6 +297,31 @@ async def test_fetch_personio_jobs(mock_get):
     assert jobs[0]["location"] == "Munich"
     assert "FastAPI Backend" in jobs[0]["raw_text"]
     assert jobs[0]["source_slug"] == "personio"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_fetch_personio_jobs_title_falls_back_to_name(mock_get):
+    xml_data = """<?xml version="1.0" encoding="utf-8"?>
+    <workpositions>
+      <position>
+        <id>p-2</id>
+        <name><![CDATA[Staff Software Engineer, Data Platform]]></name>
+        <office><![CDATA[Munich]]></office>
+        <jobDescriptions>
+          <jobDescription>
+            <name><![CDATA[Role]]></name>
+            <value><![CDATA[<p>Platform engineering</p>]]></value>
+          </jobDescription>
+        </jobDescriptions>
+      </position>
+    </workpositions>"""
+
+    mock_get.return_value = MockResponse(text_data=xml_data)
+
+    jobs = await fetch_personio_jobs("personio")
+
+    assert jobs[0]["title"] == "Staff Software Engineer, Data Platform"
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,47 @@
+{
+  "total_jobs": 867,
+  "per_source_counts": {
+    "ashby": 40,
+    "greenhouse": 499,
+    "hn": 284,
+    "lever": 9,
+    "personio": 1,
+    "recruitee": 31,
+    "yc_waas": 3
+  },
+  "status_counts": {
+    "backlog": 867
+  },
+  "empty_raw_text_jobs": 0,
+  "duplicate_url_rows": 0,
+  "latest_ingestion_run": {
+    "id": 6,
+    "status": "success",
+    "source_counts": {
+      "hn": 283,
+      "ashby": 40,
+      "lever": 9,
+      "yc_waas": 3,
+      "personio": 1,
+      "workable": 0,
+      "recruitee": 31,
+      "greenhouse": 493
+    },
+    "error_message": null,
+    "execution_time_seconds": "8.24",
+    "run_timestamp": "2026-05-27 09:28:46.006944+00:00"
+  },
+  "latest_attempted_source_counts": {
+    "hn": 283,
+    "ashby": 40,
+    "lever": 9,
+    "yc_waas": 3,
+    "personio": 1,
+    "workable": 0,
+    "recruitee": 31,
+    "greenhouse": 493
+  },
+  "run_failure_rate": 0.0,
+  "run_error_rate": 0.16666666666666666,
+  "duplicate_skip_note": "Historical duplicate skips are exact for CSV endpoint responses, but remote parser duplicate skips were not persisted before this diagnostic. duplicate_url_rows verifies the jobs table contains no duplicate URLs."
+}

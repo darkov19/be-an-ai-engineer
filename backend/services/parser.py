@@ -8,6 +8,19 @@ import xml.etree.ElementTree as ET
 
 logger = structlog.get_logger()
 
+DEFAULT_INGESTION_CONFIG = {
+    # Verified live public boards on 2026-05-27. Keep this list small enough
+    # for local diagnostics. Workable is intentionally disabled here because
+    # its public widget endpoint returned 403s/empty descriptions from this
+    # environment during verification.
+    "greenhouse": ["stripe"],
+    "lever": ["employ"],
+    "ashby": ["sentry"],
+    "workable": [],
+    "recruitee": ["bunq"],
+    "personio": ["personio"],
+}
+
 # =====================================================================
 # HTML Tag Stripper
 # =====================================================================
@@ -132,7 +145,7 @@ async def fetch_lever_jobs(company_slug: str) -> list[dict]:
         
     jobs = []
     for item in data:
-        title = item.get("title", "")
+        title = item.get("title") or item.get("text", "")
         hosted_url = item.get("hostedUrl", "")
         company = company_slug.capitalize()
         
@@ -287,7 +300,7 @@ async def fetch_personio_jobs(company_slug: str) -> list[dict]:
     jobs = []
     for position in root.findall(".//position"):
         pos_id = position.findtext("id", "")
-        title = position.findtext("title", "")
+        title = position.findtext("title", "") or position.findtext("name", "")
         location = position.findtext("office", "")
         
         desc_parts = []
@@ -464,15 +477,7 @@ async def run_full_ingestion(pool, config: dict = None) -> dict:
     Orchestrates the full multi-source ingestion run.
     """
     if config is None:
-        # Default simple set of slugs to test
-        config = {
-            "greenhouse": ["cockroach"],
-            "lever": ["lever"],
-            "ashby": ["sentry"],
-            "workable": [],
-            "recruitee": [],
-            "personio": []
-        }
+        config = DEFAULT_INGESTION_CONFIG
         
     start_time = time.perf_counter()
     source_counts = {}

@@ -2,7 +2,7 @@ import asyncio
 import structlog
 from psycopg_pool import AsyncConnectionPool
 from backend.config import settings
-from backend.services.parser import run_full_ingestion
+from backend.services.parser import DEFAULT_INGESTION_CONFIG, run_full_ingestion
 
 logger = structlog.get_logger()
 
@@ -19,16 +19,7 @@ async def main():
         await pool.open()
         
         # Test configuration for diagnostic script
-        config = {
-            "greenhouse": ["stripe"],
-            "lever": ["lever"],
-            "ashby": [],
-            "workable": [],
-            "recruitee": [],
-            "personio": []
-        }
-        
-        results = await run_full_ingestion(pool, config)
+        results = await run_full_ingestion(pool, DEFAULT_INGESTION_CONFIG)
         logger.info("Diagnostic ingestion run completed", results=results)
         
     except Exception as e:

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent, cleanup, act } from '@testing-library/react';
 import { IngestionView } from './IngestionView';
 
 // Mock EventSource globally
@@ -85,7 +85,9 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
 
     // Click initiate scan
     const scanBtn = screen.getByText(/INITIATE REMOTE SCAN/i);
-    fireEvent.click(scanBtn);
+    await act(async () => {
+      fireEvent.click(scanBtn);
+    });
 
     expect(mockFetch).toHaveBeenCalledWith('/api/v1/ingest', expect.any(Object));
 
@@ -98,19 +100,23 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
     expect(screen.getByText(/STATUS: SCANNING/i)).toBeInTheDocument();
 
     // Trigger log event
-    MockEventSource.activeInstance!.emit('task.log', {
-      event: 'Scanner loaded Ashy parser module',
-      level: 'INFO',
-      timestamp: '2026-05-27T12:00:00Z',
+    await act(async () => {
+      MockEventSource.activeInstance!.emit('task.log', {
+        event: 'Scanner loaded Ashy parser module',
+        level: 'INFO',
+        timestamp: '2026-05-27T12:00:00Z',
+      });
     });
 
     // Check log is rendered in Terminal
     await screen.findByText(/Scanner loaded Ashy parser module/i);
 
     // Complete the task
-    MockEventSource.activeInstance!.emit('task.completed', {
-      status: 'success',
-      imported_jobs: 5,
+    await act(async () => {
+      MockEventSource.activeInstance!.emit('task.completed', {
+        status: 'success',
+        imported_jobs: 5,
+      });
     });
 
     // Check status becomes completed
@@ -121,44 +127,46 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
 
   it('handles 3.0s connection timeout and displays timeout banner', async () => {
     vi.useFakeTimers();
-    
     const originalEventSource = globalThis.EventSource;
-    class LaggingEventSource {
-      url: string;
-      listeners: Record<string, ((event: { data: string }) => void)[]> = {};
-      onopen: (() => void) | null = null;
-      onerror: (() => void) | null = null;
-      constructor(url: string) {
-        this.url = url;
+    try {
+      class LaggingEventSource {
+        url: string;
+        listeners: Record<string, ((event: { data: string }) => void)[]> = {};
+        onopen: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor(url: string) {
+          this.url = url;
+        }
+        addEventListener(_event: string, _callback: (event: { data: string }) => void) {}
+        removeEventListener(_event: string, _callback: (event: { data: string }) => void) {}
+        close() {}
       }
-      addEventListener(_event: string, _callback: (event: { data: string }) => void) {}
-      removeEventListener(_event: string, _callback: (event: { data: string }) => void) {}
-      close() {}
+      globalThis.EventSource = LaggingEventSource as unknown as typeof EventSource;
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ task_id: 'test-task-uuid-456' }),
+      });
+
+      render(<IngestionView />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText(/INITIATE REMOTE SCAN/i));
+      });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3000);
+      });
+
+      expect(screen.getAllByText(/\[TIMEOUT DETECTED - PARSER OFFLINE\]/i).length).toBeGreaterThan(0);
+      expect(screen.getByText(/STATUS: FAILED/i)).toBeInTheDocument();
+    } finally {
+      globalThis.EventSource = originalEventSource;
+      vi.useRealTimers();
     }
-    globalThis.EventSource = LaggingEventSource as unknown as typeof EventSource;
-
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({ task_id: 'test-task-uuid-456' }),
-    });
-
-    render(<IngestionView />);
-
-    // Click scan
-    fireEvent.click(screen.getByText(/INITIATE REMOTE SCAN/i));
-
-    // Resolve the initial fetch promise to trigger EventSource connection
-    await vi.advanceTimersByTimeAsync(0);
-    // Then advance another 3 seconds for the connection timeout
-    await vi.advanceTimersByTimeAsync(3000);
-
-    // Timeout banner should appear
-    expect(screen.getByText(/\[TIMEOUT DETECTED - PARSER OFFLINE\]/i)).toBeInTheDocument();
-    expect(screen.getByText(/STATUS: FAILED/i)).toBeInTheDocument();
-
-    // Reset EventSource mock and timers
-    globalThis.EventSource = originalEventSource;
-    vi.useRealTimers();
   });
 
   it('triggers dragover styling and handles CSV upload file drops', async () => {
@@ -225,7 +233,9 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
 
     render(<IngestionView />);
 
-    fireEvent.click(screen.getByText(/INITIATE REMOTE SCAN/i));
+    await act(async () => {
+      fireEvent.click(screen.getByText(/INITIATE REMOTE SCAN/i));
+    });
 
     await waitFor(() => {
       expect(MockEventSource.activeInstance).not.toBeNull();
@@ -233,13 +243,17 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
 
     // Click PAUSE
     const pauseBtn = screen.getByRole('button', { name: /PAUSE/i });
-    fireEvent.click(pauseBtn);
+    await act(async () => {
+      fireEvent.click(pauseBtn);
+    });
 
     // Send log while paused
-    MockEventSource.activeInstance!.emit('task.log', {
-      event: 'Log line 1 while paused',
-      level: 'INFO',
-      timestamp: '2026-05-27T12:00:00Z',
+    await act(async () => {
+      MockEventSource.activeInstance!.emit('task.log', {
+        event: 'Log line 1 while paused',
+        level: 'INFO',
+        timestamp: '2026-05-27T12:00:00Z',
+      });
     });
 
     // Wait for the buffer count to update in the UI
@@ -251,7 +265,9 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
     expect(screen.queryByText(/Log line 1 while paused/i)).not.toBeInTheDocument();
 
     // Click RESUME
-    fireEvent.click(screen.getByRole('button', { name: /RESUME/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /RESUME/i }));
+    });
 
     // Verify log is flushed and displayed
     await screen.findByText(/Log line 1 while paused/i);
@@ -265,17 +281,21 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
 
     render(<IngestionView />);
 
-    fireEvent.click(screen.getByText(/INITIATE REMOTE SCAN/i));
+    await act(async () => {
+      fireEvent.click(screen.getByText(/INITIATE REMOTE SCAN/i));
+    });
 
     await waitFor(() => {
       expect(MockEventSource.activeInstance).not.toBeNull();
     });
 
     // Emit a log to make the download button enabled
-    MockEventSource.activeInstance!.emit('task.log', {
-      event: 'Logging message for download',
-      level: 'INFO',
-      timestamp: '2026-05-27T12:00:00Z',
+    await act(async () => {
+      MockEventSource.activeInstance!.emit('task.log', {
+        event: 'Logging message for download',
+        level: 'INFO',
+        timestamp: '2026-05-27T12:00:00Z',
+      });
     });
 
     // Wait for the log to be rendered, making the button enabled
@@ -286,7 +306,9 @@ describe('Ingestion Cockpit View & TerminalConsole', () => {
     
     // We mock click trigger
     const linkSpy = vi.spyOn(document.body, 'appendChild');
-    fireEvent.click(downloadBtn);
+    await act(async () => {
+      fireEvent.click(downloadBtn);
+    });
 
     expect(linkSpy).toHaveBeenCalled();
     expect(globalThis.URL.createObjectURL).toHaveBeenCalled();

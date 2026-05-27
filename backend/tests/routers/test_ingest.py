@@ -14,7 +14,7 @@ async def test_post_ingest_success(app, client):
     app.state.pool = mock_pool
 
     with patch("backend.routers.ingest.run_ingestion_task", new_callable=AsyncMock) as mock_run:
-        response = await client.post("/api/v1/ingest", json={"company_slug": "cockroach"})
+        response = await client.post("/api/v1/ingest", json={"company_slug": "stripe"})
         assert response.status_code == 202
         data = response.json()
         assert "task_id" in data
@@ -29,7 +29,7 @@ async def test_post_ingest_success(app, client):
 @pytest.mark.asyncio
 async def test_post_ingest_no_pool(app, client):
     app.state.pool = None
-    response = await client.post("/api/v1/ingest", json={"company_slug": "cockroach"})
+    response = await client.post("/api/v1/ingest", json={"company_slug": "stripe"})
     assert response.status_code == 500
     data = response.json()
     assert data["code"] == "DB_CONNECTION_ERROR"
@@ -356,4 +356,3 @@ async def test_ingest_csv_invalid_url_pattern(app, client):
     assert data["status"] == "success"
     assert data["imported_jobs"] == 1
     assert data["skipped_jobs"] == 2
-

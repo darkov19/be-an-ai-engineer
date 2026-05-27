@@ -7,6 +7,7 @@ import structlog
 from backend.config import settings
 from backend.utils.logging import setup_logging
 from backend.routers.health import router as health_router
+from backend.services.scheduler import initialize_scheduler, shutdown_scheduler
 
 setup_logging()
 logger = structlog.get_logger()
@@ -30,6 +31,7 @@ async def lifespan(app: FastAPI):
         app.state.pool = pool
         logger.info("Database connection pool successfully initialized and opened")
         await run_migrations(pool)
+        await initialize_scheduler(app)
     except Exception as e:
         # Pool failed to open or migrations failed — set state to None so downstream None-guards work correctly.
         # The health check will return unhealthy; get_db will raise RuntimeError cleanly.
@@ -40,6 +42,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # Shutdown logic
+    await shutdown_scheduler(app)
     if hasattr(app.state, "pool") and app.state.pool is not None:
         logger.info("Closing database connection pool")
         await app.state.pool.close()

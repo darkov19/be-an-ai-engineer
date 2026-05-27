@@ -312,6 +312,22 @@ So that my data aggregation runs automatically and alerts me of issues.
 **And** if the ingestion triggers a kill criterion, a delayed-handoff email containing the CSV pivot template and diagnostic error is sent using `Resend` within 5 minutes
 **And** if the cockpit is not accessed for 2 consecutive Saturdays, an email report containing the inline weekly report is delivered.
 
+### Story 2.5: Automated ATS Source Discovery and Registry
+
+As a transitioning developer,
+I want the app to discover, validate, and persist public ATS job-board sources automatically,
+So that weekly ingestion scans the widest practical AI-engineering market corpus without requiring me to manually provide company slugs.
+
+**Acceptance Criteria:**
+
+**Given** public discovery inputs such as HN Who's Hiring comments and a committed seed URL file
+**When** source discovery runs
+**Then** the backend detects supported ATS patterns for Greenhouse, Lever, Ashby, Workable, Recruitee, and Personio
+**And** validates each detected source by calling the existing parser adapter and checking for usable non-empty job text
+**And** stores validated active sources in a `job_sources` registry and rejected candidates with rejection reasons
+**And** default weekly ingestion uses active registry rows instead of hardcoded company slugs
+**And** discovery produces a run report showing found, validated, rejected, errored, and unsupported sources.
+
 ## Epic 3: AI Signal Extraction & Interactive Evals (The "Prognosis Engine")
 
 The system automatically extracts structured data (skills, seniority, stack, salary, policy, archetype) from job descriptions using an LLM. The developer can verify and audit the extraction quality using a hand-labeled evaluation dataset, tracking precision/recall metrics on a visual graph to prevent accuracy regressions. The system enforces render-blocking kill criteria and warning modes based on extraction precision.
@@ -335,12 +351,12 @@ So that extraction is structured, audit-logged, and fails safely if the proxy is
 ### Story 3.2: Labeled Eval Set Management & Accuracy Audits
 
 As a developer,
-I want a database migration `V003__add_evals.sql` that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
+I want a database migration `V006__add_evals.sql` that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
 So that extraction accuracy is measured mathematically and regression is flagged automatically.
 
 **Acceptance Criteria:**
 
-**Given** a database migration `backend/db/migrations/V003__add_evals.sql`
+**Given** a database migration `backend/db/migrations/V006__add_evals.sql`
 **When** migrations are run
 **Then** tables `evaluation_runs` and `eval_postings` are created
 **And** `backend/services/evaluator.py` can load a 20-sample hand-labeled ground-truth dataset (10 training / 10 held-out) with known classifications
@@ -518,8 +534,6 @@ So that hiring managers can verify my consistent job-search activity in a 90-sec
 **Then** the UI renders a publicly accessible log of all Loop B weekly metrics (applications, interviews, voice notes, LinkedIn posts) loaded from `loop-b-log.md` or a database
 **And** a link is provided to open `loop-b-log.md` directly in the GitHub repository
 **And** each weekly row includes links to public commits or LinkedIn posts, proving consistent build-in-public progression.
-
-
 
 
 

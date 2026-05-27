@@ -24,9 +24,9 @@ async def health_check(request: Request):
                 }
             }
         )
-    
+
     pool = request.app.state.pool
-    
+
     try:
         # Try to check out a connection with a timeout of 3.0 seconds
         async with pool.connection(timeout=3.0) as conn:
@@ -70,3 +70,33 @@ async def health_check(request: Request):
                 }
             }
         )
+
+
+@router.post("/cockpit/access")
+async def record_cockpit_access(request: Request):
+    if not hasattr(request.app.state, "pool") or request.app.state.pool is None:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": True,
+                "code": "DB_CONNECTION_ERROR",
+                "detail": "Database connection pool is not initialized."
+            }
+        )
+
+    pool = request.app.state.pool
+    try:
+        async with pool.connection(timeout=3.0) as conn:
+            await conn.execute("INSERT INTO cockpit_access_logs DEFAULT VALUES")
+    except Exception as exc:
+        logger.error("Failed to record cockpit access", error=str(exc))
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": True,
+                "code": "DB_CONNECTION_ERROR",
+                "detail": "Database query execution failure."
+            }
+        )
+
+    return JSONResponse(status_code=status.HTTP_201_CREATED, content={"ok": True})
