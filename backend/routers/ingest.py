@@ -272,6 +272,52 @@ async def list_ingest_sources(request: Request):
         ],
     }
 
+
+@router.get("/ingest/company-signals")
+async def list_company_signals(request: Request):
+    """
+    Returns recent company-level discovery signals and canonical resolver diagnostics.
+    """
+    pool = getattr(request.app.state, "pool", None)
+    if pool is None:
+        logger.error("Database connection pool not found in app state")
+        raise RuntimeError("Database pool not initialized")
+
+    async with pool.connection() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                SELECT provider, evidence_url, company_name, normalized_domain, status,
+                       resolved_ats, resolved_slug, resolved_source_url, rejection_reason,
+                       last_error, metadata, last_seen_at
+                FROM company_signals
+                ORDER BY last_seen_at DESC
+                LIMIT 200
+                """
+            )
+            rows = await cur.fetchall()
+
+    return {
+        "company_signals": [
+            {
+                "provider": row[0],
+                "evidence_url": row[1],
+                "company_name": row[2],
+                "normalized_domain": row[3],
+                "status": row[4],
+                "resolved_ats": row[5],
+                "resolved_slug": row[6],
+                "resolved_source_url": row[7],
+                "rejection_reason": row[8],
+                "last_error": row[9],
+                "metadata": row[10],
+                "last_seen_at": row[11],
+            }
+            for row in rows
+        ]
+    }
+
+
 @router.get("/tasks/{task_id}/logs/stream")
 async def stream_task_logs(task_id: str):
     """

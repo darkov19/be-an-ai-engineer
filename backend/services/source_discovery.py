@@ -20,6 +20,14 @@ from backend.services.parser import (
     fetch_recruitee_jobs,
     fetch_workable_jobs,
 )
+from backend.services.company_discovery import (
+    CompanyDiscoveryRunResult,
+    CompanySignal,
+    CompanySignalResolution,
+    company_signal_metrics,
+    normalize_company_signal,
+    persist_company_discovery_results,
+)
 
 logger = structlog.get_logger()
 
@@ -87,6 +95,7 @@ class DiscoveryRunResult:
     report_path: Optional[str]
     source_freshness_counts: dict = field(default_factory=dict)
     validation_results: list[ValidationResult] = field(default_factory=list)
+    company_signal_counts: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -94,6 +103,7 @@ class DiscoveryProviderResult:
     candidates: list[SourceCandidate] = field(default_factory=list)
     unsupported_urls: list[str] = field(default_factory=list)
     generic_urls: list[tuple[str, Optional[str], str]] = field(default_factory=list)
+    company_signals: list[CompanySignal] = field(default_factory=list)
 
 
 class DiscoveryProvider(Protocol):
@@ -522,25 +532,89 @@ async def discover_sources(
     validation_results: list[ValidationResult] = []
     errors: list[str] = []
     generic_urls: list[tuple[str, Optional[str], str]] = []
+    company_signals: list[CompanySignal] = []
+    company_resolutions: list[CompanySignalResolution] = []
+    company_candidate_results: list[ValidationResult] = []
+    provider_errors: dict[str, str] = {}
 
-    for provider in providers or default_discovery_providers(seed_file):
+    configured_providers = providers or default_discovery_providers(seed_file)
+    for provider in configured_providers:
         try:
             provider_result = await provider.discover()
             candidates.extend(provider_result.candidates)
             unsupported_urls.extend(provider_result.unsupported_urls)
             generic_urls.extend(provider_result.generic_urls)
+            company_signals.extend(provider_result.company_signals)
             logger.info(
                 "Source discovery provider complete",
                 provider=provider.name,
                 discovered=len(provider_result.candidates),
                 generic=len(provider_result.generic_urls),
                 unsupported=len(provider_result.unsupported_urls),
+                company_signals=len(provider_result.company_signals),
             )
         except Exception as exc:
             if provider.name == "seed_file" and isinstance(exc, ValueError):
                 raise
             errors.append(f"{provider.name}: {exc}")
+            provider_errors[provider.name] = str(exc)
             logger.error("Source discovery provider failed", provider=provider.name, error=str(exc))
+
+    if provider_errors and len(provider_errors) == len(configured_providers):
+        raise RuntimeError(f"All source discovery providers failed: {'; '.join(errors)}")
+
+    if company_signals:
+        from backend.services.canonical_resolver import resolve_company_signal
+
+        normalized_company_signals = []
+        for signal in company_signals:
+            try:
+                normalized = normalize_company_signal(signal)
+            except Exception as exc:
+                company_resolutions.append(
+                    CompanySignalResolution(
+                        signal=CompanySignal(
+                            provider=str(getattr(signal, "provider", "") or "unknown"),
+                            evidence_url=str(getattr(signal, "evidence_url", "") or "invalid"),
+                        ),
+                        status="rejected",
+                        rejection_reason="malformed_company_signal",
+                        last_error=str(exc),
+                    )
+                )
+                continue
+            if normalized.signal:
+                normalized_company_signals.append(normalized.signal)
+                continue
+            company_resolutions.append(
+                CompanySignalResolution(
+                    signal=signal,
+                    status="rejected",
+                    rejection_reason=normalized.rejection_reason or "unsupported_company_signal",
+                )
+            )
+
+        for signal in normalized_company_signals:
+            try:
+                resolution = await resolve_company_signal(signal)
+                company_resolutions.append(resolution)
+                if signal.direct_ats_url and resolution.validation_result:
+                    company_candidate_results.append(resolution.validation_result)
+            except Exception as exc:
+                company_resolutions.append(
+                    CompanySignalResolution(
+                        signal=signal,
+                        status="error",
+                        rejection_reason="validation_error",
+                        last_error=str(exc),
+                    )
+                )
+                logger.warning(
+                    "Company signal resolution failed",
+                    provider=signal.provider,
+                    evidence_url=signal.evidence_url,
+                    error=str(exc),
+                )
 
     for url, company_hint, discovery_method in generic_urls:
         try:
@@ -563,6 +637,18 @@ async def discover_sources(
             logger.info("Source rejected", ats=candidate.ats, slug=candidate.slug, reason=result.rejection_reason)
         else:
             logger.error("Source validation errored", ats=candidate.ats, slug=candidate.slug, error=result.last_error)
+
+    existing_result_keys = {
+        (result.candidate.ats, result.candidate.slug, result.candidate.source_url)
+        for result in validation_results
+    }
+    for result in company_candidate_results:
+        key = (result.candidate.ats, result.candidate.slug, result.candidate.source_url)
+        if key in existing_result_keys:
+            continue
+        candidates.append(result.candidate)
+        validation_results.append(result)
+        existing_result_keys.add(key)
 
     rejected_unsupported = [
         ValidationResult(
@@ -600,9 +686,27 @@ async def discover_sources(
         report_path=None,
         source_freshness_counts={},
         validation_results=all_results,
+        company_signal_counts={},
     )
 
+    company_discovery_result = CompanyDiscoveryRunResult(
+        signals=company_signals,
+        resolutions=company_resolutions,
+        provider_errors=provider_errors,
+    )
+    discovery_result.company_signal_counts = company_signal_metrics(company_discovery_result)
+
     await persist_discovery_result(pool, discovery_result, time.perf_counter() - start_time, "; ".join(errors) or None)
+    if company_signals or provider_errors:
+        try:
+            await persist_company_discovery_results(
+                pool,
+                company_discovery_result,
+                time.perf_counter() - start_time,
+                "; ".join(errors) or None,
+            )
+        except Exception as exc:
+            logger.warning("Company discovery diagnostics persistence failed", error=str(exc))
     discovery_result.active_source_count_after_run = await get_active_source_count(pool)
     discovery_result.source_freshness_counts = await get_source_freshness_counts(
         pool,
@@ -727,6 +831,15 @@ def write_discovery_report(result: DiscoveryRunResult, report_dir: Path = DEFAUL
             "inactive": 0,
         },
         "coverage_gaps": result.coverage_gaps,
+        "company_signals": result.company_signal_counts or {
+            "signal_count": 0,
+            "resolved_count": 0,
+            "unresolved_count": 0,
+            "rejected_count": 0,
+            "error_count": 0,
+            "counts_by_provider": {},
+            "rejection_reasons": {},
+        },
     }
     try:
         report_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")

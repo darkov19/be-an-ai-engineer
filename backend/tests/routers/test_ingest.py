@@ -162,9 +162,13 @@ async def test_run_ingestion_task_timeout():
     # Enqueue a log so history has something
     task_manager.enqueue_log(task_id, {"event": "started working", "level": "info"})
 
+    async def timeout_wait_for(coro, timeout):
+        coro.close()
+        raise asyncio.TimeoutError
+
     # Force run_full_ingestion to raise TimeoutError by patching wait_for to raise it
     with patch("backend.routers.ingest.run_full_ingestion", new_callable=AsyncMock) as mock_ingest:
-        with patch("asyncio.wait_for", side_effect=asyncio.TimeoutError):
+        with patch("asyncio.wait_for", side_effect=timeout_wait_for):
             await run_ingestion_task(task_id, mock_pool, None)
 
             # Allow event loop to process scheduled callbacks
@@ -372,6 +376,52 @@ class MockSourceListPool:
         return MockSourceListConnection()
 
 
+class MockCompanySignalCursor:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, query, vars=None):
+        self.query = query
+        self.vars = vars
+
+    async def fetchall(self):
+        return [
+            (
+                "unit",
+                "https://example.com/evidence",
+                "Acme",
+                "example.com",
+                "resolved",
+                "greenhouse",
+                "acme",
+                "https://boards.greenhouse.io/acme",
+                None,
+                None,
+                {"source_urls": ["https://boards.greenhouse.io/acme"]},
+                None,
+            )
+        ]
+
+
+class MockCompanySignalConnection:
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def cursor(self):
+        return MockCompanySignalCursor()
+
+
+class MockCompanySignalPool:
+    def connection(self):
+        return MockCompanySignalConnection()
+
+
 @pytest.mark.asyncio
 async def test_get_ingest_sources_lists_registry_diagnostics(app, client):
     app.state.pool = MockSourceListPool()
@@ -383,6 +433,19 @@ async def test_get_ingest_sources_lists_registry_diagnostics(app, client):
     assert data["sources"][0]["ats"] == "greenhouse"
     assert data["sources"][0]["active"] is True
     assert data["rejected_candidates"][0]["rejection_reason"] == "unsupported_or_no_ats_detected"
+
+
+@pytest.mark.asyncio
+async def test_get_company_signals_lists_recent_diagnostics(app, client):
+    app.state.pool = MockCompanySignalPool()
+
+    response = await client.get("/api/v1/ingest/company-signals")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["company_signals"][0]["provider"] == "unit"
+    assert data["company_signals"][0]["resolved_ats"] == "greenhouse"
+    assert data["company_signals"][0]["metadata"]["source_urls"] == ["https://boards.greenhouse.io/acme"]
 
 @pytest.mark.asyncio
 async def test_ingest_csv_success(app, client):

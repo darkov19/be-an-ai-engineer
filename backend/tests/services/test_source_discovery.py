@@ -23,6 +23,19 @@ from backend.services.source_discovery import (
     persist_discovery_result,
     validate_candidate_source,
 )
+from backend.services.company_discovery import (
+    CompanyDiscoveryRunResult,
+    CompanySignal,
+    CompanySignalResolution,
+    normalize_company_signal,
+    persist_company_discovery_results,
+)
+
+
+def read_discovery_report(report_dir: Path) -> dict:
+    report_files = list(report_dir.glob("source-discovery-report-*.json"))
+    assert len(report_files) == 1
+    return json.loads(report_files[0].read_text(encoding="utf-8"))
 
 
 def test_normalize_ats_url_supported_patterns():
@@ -52,6 +65,59 @@ def test_normalize_ats_url_rejects_malformed_and_unsupported():
     assert normalize_ats_url("ftp://boards.greenhouse.io/stripe", "unit") is None
     assert normalize_ats_url("not a url", "unit") is None
     assert normalize_ats_url("https://example.com/careers", "unit") is None
+
+
+def test_company_discovery_migration_defines_signal_registry_shape():
+    migration = Path("backend/db/migrations/V006__add_company_discovery.sql").read_text(encoding="utf-8")
+
+    assert "CREATE TABLE IF NOT EXISTS company_discovery_runs" in migration
+    assert "CREATE TABLE IF NOT EXISTS company_signals" in migration
+    assert "status IN ('candidate', 'resolved', 'rejected', 'unresolved', 'error')" in migration
+    assert "NULLS NOT DISTINCT" in migration
+    assert "idx_company_signals_provider_evidence_unique" in migration
+
+
+def test_normalize_company_signal_accepts_domains_and_rejects_bad_inputs():
+    accepted = normalize_company_signal(
+        CompanySignal(
+            provider="unit",
+            evidence_url="https://example.com/evidence",
+            company_name="Example",
+            company_domain="https://www.Example.com/about",
+            careers_url="https://example.com/careers",
+            confidence=0.8,
+            category_hints=["ai"],
+        )
+    )
+
+    assert accepted.signal is not None
+    assert accepted.signal.normalized_domain == "example.com"
+    assert accepted.rejection_reason is None
+
+    rejected = normalize_company_signal(
+        CompanySignal(provider="unit", evidence_url="not-a-url", company_name="Bad")
+    )
+
+    assert rejected.signal is None
+    assert rejected.rejection_reason == "invalid_evidence_url"
+
+    unbounded_careers_url = normalize_company_signal(
+        CompanySignal(
+            provider="unit",
+            evidence_url="https://example.com/evidence",
+            careers_url="https://example.com/team/open-roles",
+        )
+    )
+
+    assert unbounded_careers_url.signal is None
+    assert unbounded_careers_url.rejection_reason == "invalid_careers_url"
+
+    missing_provider = normalize_company_signal(
+        CompanySignal(provider="", evidence_url="https://example.com/evidence", company_domain="example.com")
+    )
+
+    assert missing_provider.signal is None
+    assert missing_provider.rejection_reason == "missing_provider"
 
 
 def test_extract_urls_from_html_handles_links_and_text():
@@ -420,6 +486,38 @@ async def test_persist_discovery_result_inserts_candidates_and_upserts_sources()
 
 
 @pytest.mark.asyncio
+async def test_persist_company_discovery_results_upserts_signals_and_validated_sources():
+    signal = CompanySignal(
+        provider="unit",
+        evidence_url="https://example.com/evidence",
+        company_name="Acme",
+        company_domain="example.com",
+        normalized_domain="example.com",
+    )
+    candidate = SourceCandidate("Acme", "greenhouse", "acme", "https://boards.greenhouse.io/acme", "company_signal")
+    result = CompanyDiscoveryRunResult(
+        signals=[signal],
+        resolutions=[
+            CompanySignalResolution(
+                signal=signal,
+                status="resolved",
+                resolved_candidate=candidate,
+                validation_result=ValidationResult(candidate, "validated", job_count=2, usable_job_count=2),
+            )
+        ],
+        provider_errors={},
+    )
+    pool = PersistPool()
+
+    await persist_company_discovery_results(pool, result, 1.25, None)
+
+    queries = [call[0] for call in pool.conn.cursor_obj.execute_calls]
+    assert any("INSERT INTO company_discovery_runs" in query for query in queries)
+    assert any("INSERT INTO company_signals" in query and "ON CONFLICT" in query for query in queries)
+    assert any("INSERT INTO job_sources" in query and "ON CONFLICT (ats, slug) DO UPDATE" in query for query in queries)
+
+
+@pytest.mark.asyncio
 @patch("backend.services.source_discovery.discover_from_hn", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.discover_from_seed_file", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.expand_careers_page_once", new_callable=AsyncMock)
@@ -447,11 +545,11 @@ async def test_discover_sources_deduplicates_and_writes_report(
 
     assert result.candidate_count == 1
     assert result.validated_count == 1
-    assert (tmp_path / "source-discovery-report-2026-05-27.json").exists()
-    report = json.loads((tmp_path / "source-discovery-report-2026-05-27.json").read_text(encoding="utf-8"))
+    report = read_discovery_report(tmp_path)
     assert report["candidate_count"] == 1
     assert report["active_source_count_after_run"] == 0
     assert report["source_freshness_counts"]["validated_within_current_run"] == 1
+    assert report["company_signals"]["signal_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -508,6 +606,18 @@ async def test_discover_sources_fails_on_invalid_seed_json(mock_seed, mock_hn, t
 
 
 @pytest.mark.asyncio
+async def test_discover_sources_fails_when_all_configured_providers_fail(tmp_path):
+    class FailingProvider:
+        name = "failing"
+
+        async def discover(self):
+            raise RuntimeError("provider unavailable")
+
+    with pytest.raises(RuntimeError, match="All source discovery providers failed"):
+        await discover_sources(MagicMock(), providers=[FailingProvider()], report_dir=tmp_path)
+
+
+@pytest.mark.asyncio
 @patch("backend.services.source_discovery.validate_candidate_source", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
 async def test_discover_sources_can_run_without_seed_provider(mock_persist, mock_validate, tmp_path):
@@ -539,3 +649,109 @@ async def test_discover_sources_can_run_without_seed_provider(mock_persist, mock
 
     assert result.candidate_count == 1
     assert result.validated_count == 1
+
+
+@pytest.mark.asyncio
+@patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_resolves_company_signals_with_isolated_failures(
+    mock_persist,
+    mock_persist_company,
+    mock_resolve,
+    tmp_path,
+):
+    signal = CompanySignal(
+        provider="static_company",
+        evidence_url="https://example.com/evidence",
+        company_name="Acme",
+        company_domain="example.com",
+    )
+
+    class StaticCompanyProvider:
+        name = "static_company"
+
+        async def discover(self):
+            return DiscoveryProviderResult(company_signals=[signal])
+
+    mock_resolve.return_value = CompanySignalResolution(signal=signal, status="unresolved", rejection_reason="no_canonical_source_found")
+
+    result = await discover_sources(MagicMock(), providers=[StaticCompanyProvider()], report_dir=tmp_path)
+
+    assert result.company_signal_counts["signal_count"] == 1
+    assert result.company_signal_counts["unresolved_count"] == 1
+    mock_persist_company.assert_awaited_once()
+    report = read_discovery_report(tmp_path)
+    assert report["company_signals"]["counts_by_provider"] == {"static_company": 1}
+
+
+@pytest.mark.asyncio
+@patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_adds_direct_ats_company_signals_to_candidate_diagnostics(
+    mock_persist,
+    mock_persist_company,
+    mock_resolve,
+    tmp_path,
+):
+    signal = CompanySignal(
+        provider="static_company",
+        evidence_url="https://example.com/evidence",
+        direct_ats_url="https://boards.greenhouse.io/acme",
+    )
+    candidate = SourceCandidate("Acme", "greenhouse", "acme", "https://boards.greenhouse.io/acme", "company_signal")
+    validation = ValidationResult(candidate, "validated", job_count=2, usable_job_count=2)
+
+    class StaticCompanyProvider:
+        name = "static_company"
+
+        async def discover(self):
+            return DiscoveryProviderResult(company_signals=[signal])
+
+    mock_resolve.return_value = CompanySignalResolution(
+        signal=signal,
+        status="resolved",
+        resolved_candidate=candidate,
+        validation_result=validation,
+    )
+
+    result = await discover_sources(MagicMock(), providers=[StaticCompanyProvider()], report_dir=tmp_path)
+
+    assert result.candidate_count == 1
+    assert result.validated_count == 1
+    persisted_result = mock_persist.await_args.args[1]
+    assert persisted_result.validation_results[0].candidate.discovery_method == "company_signal"
+    mock_persist_company.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_continues_when_company_diagnostics_persistence_fails(
+    mock_persist,
+    mock_persist_company,
+    mock_resolve,
+    tmp_path,
+):
+    signal = CompanySignal(
+        provider="static_company",
+        evidence_url="https://example.com/evidence",
+        company_domain="example.com",
+    )
+
+    class StaticCompanyProvider:
+        name = "static_company"
+
+        async def discover(self):
+            return DiscoveryProviderResult(company_signals=[signal])
+
+    mock_resolve.return_value = CompanySignalResolution(signal=signal, status="unresolved", rejection_reason="no_canonical_source_found")
+    mock_persist_company.side_effect = RuntimeError("diagnostics failed")
+
+    result = await discover_sources(MagicMock(), providers=[StaticCompanyProvider()], report_dir=tmp_path)
+
+    assert result.company_signal_counts["signal_count"] == 1
+    assert result.report_path is not None
+    assert Path(result.report_path).exists()

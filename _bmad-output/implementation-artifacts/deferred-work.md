@@ -9,3 +9,7 @@
 - **Default ingestion config uses live company slugs**: Hardcoded live ATS slugs can silently fail if boards go private or slugs change. Current defaults were refreshed on 2026-05-27 for the reliable live adapters, but they should still move to a maintained seed-list config.
 - **Workable default seed disabled**: Workable's public widget endpoint returned 403 responses and empty descriptions from the local verification environment on 2026-05-27. Keep the adapter implemented, but do not include Workable in scheduled defaults until a seed slug reliably returns non-empty `raw_text`.
 - **`updated_at` column has no update trigger**: The `jobs` table defines `updated_at` but no `UPDATE` logic exists yet. It will become stale when job status changes in future stories.
+
+## Deferred from: code review of 3-1-company-signals-and-canonical-source-resolver.md (2026-05-27)
+
+- **Resolver has no per-run company signal cap [backend/services/source_discovery.py:582]**: Story 3.1 bounds each company resolution path, but does not specify a global provider yield cap. Revisit when Story 3.2+ introduce real providers and observed yield volume.
