@@ -12,4 +12,4 @@
 
 ## Deferred from: code review of 3-1-company-signals-and-canonical-source-resolver.md (2026-05-27)
 
-- **Resolver has no per-run company signal cap [backend/services/source_discovery.py:582]**: Story 3.1 bounds each company resolution path, but does not specify a global provider yield cap. Revisit when Story 3.2+ introduce real providers and observed yield volume.
+- ~~**Resolver has no per-run company signal cap [backend/services/source_discovery.py:582]**: Story 3.1 bounds each company resolution path, but does not specify a global provider yield cap. Revisit when Story 3.2+ introduce real providers and observed yield volume.~~ **Resolved 2026-05-28** — added orchestration-wide `DISCOVERY_MAX_COMPANY_SIGNALS_PER_RUN` and `DISCOVERY_MAX_COMPANY_RESOLUTIONS_PER_RUN` caps with diagnostics.

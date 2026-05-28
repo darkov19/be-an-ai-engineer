@@ -70,8 +70,8 @@ carryForward:
 | **Complexity** | Medium. Domain complexity is low; technical complexity is medium (LLM structured extraction, pgvector retrieval, cost-capped batching, evals harness, dual-loop execution as a product constraint). |
 | **Project Context** | Greenfield. No existing codebase. Public GitHub repository from Day 1. |
 | **Scope ceiling** | 4-week MVP. Single user. One weekly skill-gap report as the primary output artifact. |
-| **Primary ingest sources (MVP core)** | Validated canonical sources only: Greenhouse, Lever, Ashby, **Workable, Recruitee, Personio**, company `JobPosting` JSON-LD where supported, and registry-backed sources discovered from HN, Google Custom Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit |
-| **Signal providers** | HN "Who's Hiring", Google Custom Search JSON API, constrained Wellfound company signals, Common Crawl ATS index, YC company directory, VC portfolio pages, GitHub organization metadata, Reddit hiring posts |
+| **Primary ingest sources (MVP core)** | Validated canonical sources only: Greenhouse, Lever, Ashby, **Workable, Recruitee, Personio**, company `JobPosting` JSON-LD where supported, and registry-backed sources discovered from HN, Vertex AI Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit |
+| **Signal providers** | HN "Who's Hiring", Vertex AI Search Discovery Engine `searchLite`, constrained Wellfound company signals, Common Crawl ATS index, YC company directory, VC portfolio pages, GitHub organization metadata, Reddit hiring posts |
 | **Constrained / excluded ingest surfaces** | LinkedIn and Indeed are not automated providers; Google result pages and Google Jobs are not scraped; Wellfound job text is not trusted corpus data; RapidAPI-style job APIs are excluded from the main pipeline |
 | **Out of MVP scope (deferred to Vision)** | Naukri, Workday-hosted enterprise boards unless surfaced through canonical validation, multi-user / accounts / auth / billing / chatbot UI, Interview Prep Agent, Resume Tailoring Agent, Content Pipeline Agent, Studio Aalekh integration |
 | **Explicit non-goals** | Not a SaaS. Not a job scraper product. Not an auto-apply bot. Not a generic resume tool. Not a job marketplace. |
@@ -109,7 +109,7 @@ The project also has an independent success criterion: **it must function as a c
 | **Public repo visibility** | Day 1, honest README, commit history visible | Non-negotiable | GitHub visibility check |
 | **Weekly report segmentation** | Report shows top-10 skills for US/EU remote segment AND top-10 for India-based AI product segment, side-by-side | Must be present in Week 4 output | Report HTML structure |
 | **Pre-Week-1 India empirical spike** | 15 India AI company careers pages visited, ATS recorded, source registry/manual hints updated before ingest scales | 1-hour binding task | Committed CSV + registry/manual-hint diff |
-| **Week-2 Company Radar activation** | Company discovery registry, canonical resolver, Google Custom Search, and constrained Wellfound signal providers documented and queued | Must preserve canonical-source rule | Strategy doc + epic/story backlog |
+| **Week-2 Company Radar activation** | Company discovery registry, canonical resolver, Vertex AI Search, and constrained Wellfound signal providers documented and queued | Must preserve canonical-source rule | Strategy doc + epic/story backlog |
 
 ### Leading Indicators — three-loop weekly tracker
 
@@ -177,7 +177,7 @@ The project also has an independent success criterion: **it must function as a c
 
 - Store company discovery signals with provider, evidence URL, confidence/category hints, status, and rejection reason.
 - Resolve discovered companies through canonical company paths only: `/careers`, `/jobs`, `/join-us`, `/work-with-us`, `/company/careers`, declared sitemaps, supported ATS links, and `JobPosting` JSON-LD.
-- Add Google Custom Search as an optional official-API provider only; default cap is 100 queries/day and no paid usage unless explicitly enabled.
+- Add Vertex AI Search as an optional official-API provider only; use Discovery Engine `searchLite` with durable local daily/monthly caps and no paid usage unless explicitly enabled.
 - Add Wellfound as a constrained company-signal provider only; no login, no browser automation, no pagination crawling, no disallowed `/_jobs/` crawling, and no direct Wellfound job-text ingestion.
 - Add Common Crawl ATS index discovery for supported ATS URL patterns, with hard caps and `(ats, slug)` deduplication.
 - Add YC, VC portfolio, GitHub, and Reddit signal providers after the resolver exists.
@@ -553,8 +553,8 @@ This section documents the full technical stack discovered across all previous P
 | 60/15 debug time-box with committed log | Week 2 | Bounds developer reflex |
 | Warning mode for ambiguous threshold breaches | Week 2 | Yellow banner, 7-day recovery window |
 | Delayed-handoff email (24h after kill, inline pivot template) | Week 2 | Resend free tier |
-| Company discovery registry + canonical source resolver | Week 2 | Required before Google/Wellfound/YC/VC/GitHub/Reddit signals can safely activate sources |
-| Google Custom Search signal provider | Week 2 | Official API only, optional credentials, 100/day default cap |
+| Company discovery registry + canonical source resolver | Week 2 | Required before Vertex/Wellfound/YC/VC/GitHub/Reddit signals can safely activate sources |
+| Vertex AI Search signal provider | Week 2 | Official Discovery Engine API only, optional credentials, durable local caps |
 | Constrained Wellfound signal provider | Week 2 | Company/domain/evidence only; no trusted Wellfound job corpus |
 | Common Crawl ATS index provider | Week 3 | Direct ATS source discovery at scale with hard caps and validation |
 | Skill ranker + co-occurrence clusters + salary-stack correlations | Week 3 | Core product output |
@@ -655,7 +655,7 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 
 - **FR48:** Pipeline can store company discovery signals from multiple providers, including company name, domain, evidence URL, provider name, confidence, and category hints
 - **FR49:** Pipeline can resolve discovered company domains to canonical careers or ATS sources using bounded careers paths, sitemap parsing, ATS URL detection, and `JobPosting` JSON-LD parsing
-- **FR50:** Pipeline can use Google Custom Search JSON API as an optional capped signal provider for careers and ATS page discovery without scraping Google result pages
+- **FR50:** Pipeline can use Vertex AI Search Discovery Engine `searchLite` as an optional capped signal provider for careers and ATS page discovery without scraping search result pages
 - **FR51:** Pipeline can use Wellfound as a constrained company-signal provider, extracting company/domain/evidence only and never treating Wellfound job text as trusted corpus data
 - **FR52:** Pipeline can query Common Crawl indexes for supported public ATS URL patterns, deduplicate ATS slugs, and validate candidates before activation
 - **FR53:** Pipeline can discover company signals from YC company directories and VC portfolio pages, then verify hiring through canonical company or ATS sources

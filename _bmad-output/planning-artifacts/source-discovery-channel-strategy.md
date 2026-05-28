@@ -78,18 +78,18 @@ Keep it because:
 - comments often include direct careers or ATS links,
 - signal is strong for startups, AI, backend, devtools, and infrastructure.
 
-### 2. Google Custom Search Signal Provider
+### 2. Vertex AI Search Signal Provider
 
 Purpose: fresh careers/ATS page discovery through an official API.
 
-Use Google only through the Custom Search JSON API. Do not scrape Google result pages or Google Jobs.
+Use Vertex AI Search only through the Discovery Engine `searchLite` API. Do not scrape search result pages, Google result pages, or Google Jobs.
 
 Implementation rules:
 
-- Provider name: `google_search_api`.
-- Disabled unless `GOOGLE_CUSTOM_SEARCH_API_KEY` and `GOOGLE_CUSTOM_SEARCH_ENGINE_ID` are configured.
-- Default query cap: 100 queries/day, matching the free quota boundary.
-- Paid Google usage remains disabled unless explicitly configured.
+- Provider name: `vertex_ai_search`.
+- Disabled unless `VERTEX_SEARCH_ENABLED=true` and `VERTEX_SEARCH_API_KEY`, `VERTEX_SEARCH_PROJECT_ID`, and `VERTEX_SEARCH_ENGINE_ID` are configured.
+- Default test-mode caps are conservative and production mode remains disabled unless explicitly configured.
+- Durable local quota state must prevent repeated manual runs from bypassing daily/monthly caps.
 - Store query text, result URL, title, snippet, rank, provider metadata, and evidence URL.
 - Treat results as company/source signals only.
 
@@ -243,7 +243,7 @@ Implementation rules:
 1. Add company-signal data model and discovery run telemetry.
 2. Build canonical source resolver with bounded careers paths, sitemap parsing, ATS detection, and JSON-LD `JobPosting` parsing.
 3. Keep HN provider active and migrate its output into the company/source signal model where useful.
-4. Add Google Custom Search signal provider.
+4. Add Vertex AI Search signal provider.
 5. Add constrained Wellfound signal provider.
 6. Add Common Crawl ATS index provider.
 7. Add YC company directory provider.

@@ -6,7 +6,7 @@ Scope: Moderate backlog reorganization
 
 ## 1. Issue Summary
 
-Story 2.5 implemented ATS source discovery and registry-backed ingestion, but follow-up product discussion identified a larger gap: ATS discovery alone does not answer which companies should be checked. The market scanner needs a company discovery layer that can identify likely hiring companies from HN, Google Custom Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit, then verify hiring through canonical company or ATS sources.
+Story 2.5 implemented ATS source discovery and registry-backed ingestion, but follow-up product discussion identified a larger gap: ATS discovery alone does not answer which companies should be checked. The market scanner needs a company discovery layer that can identify likely hiring companies from HN, Vertex AI Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit, then verify hiring through canonical company or ATS sources.
 
 The original plan moved directly from Epic 2 ingestion into LLM extraction. That sequence risks extracting and analyzing a corpus that is too narrow or seed-dependent. The correction inserts a new epic before AI extraction so the corpus acquisition layer becomes strong enough to support downstream analytics.
 
@@ -25,7 +25,7 @@ The original plan moved directly from Epic 2 ingestion into LLM extraction. That
 New Epic 3 contains four stories:
 
 1. `3.1 Company Signals and Canonical Source Resolver`
-2. `3.2 Google and Wellfound Direct Hiring Signal Providers`
+2. `3.2 Vertex AI Search and Wellfound Direct Hiring Signal Providers`
 3. `3.3 Common Crawl, YC, and VC Scale Discovery Providers`
 4. `3.4 Long-Tail Signals and Provider Yield Reporting`
 
@@ -85,7 +85,7 @@ Added FR48-FR55 covering:
 
 - company discovery signal registry,
 - canonical source resolver,
-- Google Custom Search signal provider,
+- Vertex AI Search signal provider,
 - constrained Wellfound signal provider,
 - Common Crawl ATS index provider,
 - YC and VC company discovery providers,
@@ -104,7 +104,7 @@ Recommended next handoff:
 
 1. Run story creation for `3.1-company-signals-and-canonical-source-resolver`.
 2. Validate story 3.1 before development because it introduces schema and orchestration boundaries.
-3. Implement Epic 3 in sequence; do not start Google/Wellfound providers before the canonical resolver exists.
+3. Implement Epic 3 in sequence; do not start Vertex/Wellfound providers before the canonical resolver exists.
 4. Keep weekly ingestion pointed only at validated `job_sources`.
 
 Success criteria:

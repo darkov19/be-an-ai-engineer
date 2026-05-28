@@ -2495,6 +2495,102 @@ async def test_discover_sources_resolves_company_signals_with_isolated_failures(
 @patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_caps_total_company_signals_before_resolution(
+    mock_persist,
+    mock_persist_company,
+    mock_resolve,
+    tmp_path,
+):
+    signals = [
+        CompanySignal(
+            provider="static_company",
+            evidence_url=f"https://example.com/evidence/{index}",
+            company_domain=f"example{index}.com",
+        )
+        for index in range(3)
+    ]
+
+    class StaticCompanyProvider:
+        name = "static_company"
+
+        async def discover(self):
+            return DiscoveryProviderResult(company_signals=signals)
+
+    mock_resolve.side_effect = [
+        CompanySignalResolution(signal=signal, status="unresolved", rejection_reason="no_canonical_source_found")
+        for signal in signals[:2]
+    ]
+
+    with (
+        patch("backend.services.source_discovery.settings.discovery_max_company_signals_per_run", 2),
+        patch("backend.services.source_discovery.settings.discovery_max_company_resolutions_per_run", 10),
+    ):
+        result = await discover_sources(MagicMock(), providers=[StaticCompanyProvider()], report_dir=tmp_path)
+
+    assert result.company_signal_counts["signal_count"] == 2
+    assert mock_resolve.await_count == 2
+    diagnostics = result.company_signal_counts["provider_diagnostics"]["company_signal_orchestration"]
+    assert diagnostics["cap_type"] == "company_signals"
+    assert diagnostics["signals_seen"] == 3
+    assert diagnostics["signals_dropped"] == 1
+    assert diagnostics["dropped_by_provider"] == {"static_company": 1}
+    assert "company_signal_orchestration" not in result.provider_yield["providers"]
+
+
+@pytest.mark.asyncio
+@patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_caps_total_company_resolutions_with_diagnostics(
+    mock_persist,
+    mock_persist_company,
+    mock_resolve,
+    tmp_path,
+):
+    signals = [
+        CompanySignal(
+            provider="static_company",
+            evidence_url=f"https://example.com/evidence/{index}",
+            company_domain=f"example{index}.com",
+        )
+        for index in range(2)
+    ]
+
+    class StaticCompanyProvider:
+        name = "static_company"
+
+        async def discover(self):
+            return DiscoveryProviderResult(company_signals=signals)
+
+    mock_resolve.return_value = CompanySignalResolution(
+        signal=signals[0],
+        status="unresolved",
+        rejection_reason="no_canonical_source_found",
+    )
+
+    with (
+        patch("backend.services.source_discovery.settings.discovery_max_company_signals_per_run", 10),
+        patch("backend.services.source_discovery.settings.discovery_max_company_resolutions_per_run", 1),
+    ):
+        result = await discover_sources(MagicMock(), providers=[StaticCompanyProvider()], report_dir=tmp_path)
+
+    assert result.company_signal_counts["signal_count"] == 2
+    assert result.company_signal_counts["unresolved_count"] == 1
+    assert result.company_signal_counts["rejected_count"] == 1
+    assert result.company_signal_counts["rejection_reasons"]["resolution_cap_exceeded"] == 1
+    assert mock_resolve.await_count == 1
+    diagnostics = result.company_signal_counts["provider_diagnostics"]["company_signal_orchestration"]
+    assert diagnostics["cap_type"] == "company_resolutions"
+    assert diagnostics["resolutions_seen"] == 2
+    assert diagnostics["resolutions_dropped"] == 1
+    assert diagnostics["resolution_dropped_by_provider"] == {"static_company": 1}
+    assert "company_signal_orchestration" not in result.provider_yield["providers"]
+
+
+@pytest.mark.asyncio
+@patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
 async def test_discover_sources_adds_direct_ats_company_signals_to_candidate_diagnostics(
     mock_persist,
     mock_persist_company,

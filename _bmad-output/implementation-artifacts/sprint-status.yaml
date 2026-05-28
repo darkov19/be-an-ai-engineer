@@ -1,5 +1,5 @@
 # generated: 2026-05-26T19:38:26+05:30
-# last_updated: 2026-05-28T18:26:47+05:30
+# last_updated: 2026-05-28T18:58:48+05:30
 # project: be-an-ai-engineer
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-26T19:38:26+05:30
-last_updated: 2026-05-28T18:26:47+05:30
+last_updated: 2026-05-28T18:58:48+05:30
 project: be-an-ai-engineer
 project_key: NOKEY
 tracking_system: file-system
@@ -56,12 +56,12 @@ development_status:
   2-5-automated-ats-source-discovery-and-registry: done
   epic-2-retrospective: done
 
-  epic-3: in-progress
+  epic-3: done
   3-1-company-signals-and-canonical-source-resolver: done
   3-2-google-and-wellfound-direct-hiring-signal-providers: done
   3-3-common-crawl-yc-and-vc-scale-discovery-providers: done
   3-4-long-tail-signals-and-provider-yield-reporting: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   epic-4: backlog
   4-1-llm-structured-extraction-and-proxy-verification: backlog

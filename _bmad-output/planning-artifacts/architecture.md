@@ -27,7 +27,7 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 - **Mission Control UI**: A local React SPA dashboard to trigger tasks, edit user profiles, visualize skills/gaps, run evaluations, and update the accountability ledger.
 - **Local API Backend**: A Python backend (FastAPI) to expose services to the React UI and manage the data pipeline.
 - **Multi-Source Ingestion**: Ingest AI engineering job postings from active source-registry rows backed by Greenhouse, Lever, Ashby, Workable, Recruitee, Personio, YC `workatastartup.com`, HN threads, and validated company `JobPosting` JSON-LD. Triggerable on-demand via the React UI.
-- **Company Discovery & Canonical Source Resolution**: Discover companies from HN, Google Custom Search, constrained Wellfound signals, Common Crawl ATS indexes, YC directories, VC portfolio pages, GitHub organization metadata, and Reddit hiring posts, then activate only canonical employer or ATS sources after validation.
+- **Company Discovery & Canonical Source Resolution**: Discover companies from HN, Vertex AI Search, constrained Wellfound signals, Common Crawl ATS indexes, YC directories, VC portfolio pages, GitHub organization metadata, and Reddit hiring posts, then activate only canonical employer or ATS sources after validation.
 - **Structured LLM Extraction**: Extract job fields (skills, seniority, tech stack, salary band, remote policy, and role archetype) using the local Hermes proxy pointing to the Codex subscription.
 - **Evaluation Harness UI**: Trigger evals and audit extraction accuracy (precision/recall) directly on the dashboard.
 - **Storage & Vector Search**: Local Neon Postgres/pgvector instance for vector embedding storage and profile matching.
@@ -577,7 +577,7 @@ be-an-ai-engineer/
 
 **Functional Requirements Coverage:**
 - All ingestion sources (Greenhouse, Lever, Ashby, Workable, etc.) will be supported by specialized parser blocks in `backend/services/parser.py`.
-- Company discovery requirements FR48-FR55 are covered by provider contracts, canonical resolver validation, source registry tables, capped Google/Wellfound constraints, and discovery reporting.
+- Company discovery requirements FR48-FR55 are covered by provider contracts, canonical resolver validation, source registry tables, capped Vertex AI Search/Wellfound constraints, and discovery reporting.
 - Task tracking logs utilize an in-memory queue streaming to SSE without locking the server thread.
 
 **Non-Functional Requirements Coverage:**

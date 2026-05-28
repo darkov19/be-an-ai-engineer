@@ -65,7 +65,7 @@ This document provides the complete epic and story breakdown for be-an-ai-engine
 - **FR47:** Pipeline can commit required craft-signal documentation artifacts (eval methodology, local Hermes proxy configuration guide, annotated extraction failure cases) to the public repository as versioned files
 - **FR48:** Pipeline can store company discovery signals from multiple providers, including company name, domain, evidence URL, provider name, confidence, and category hints
 - **FR49:** Pipeline can resolve discovered company domains to canonical careers or ATS sources using bounded careers paths, sitemap parsing, ATS URL detection, and JobPosting JSON-LD parsing
-- **FR50:** Pipeline can use Google Custom Search JSON API as an optional capped signal provider for careers and ATS page discovery without scraping Google result pages
+- **FR50:** Pipeline can use Vertex AI Search Discovery Engine `searchLite` as an optional capped signal provider for careers and ATS page discovery without scraping search result pages
 - **FR51:** Pipeline can use Wellfound as a constrained company-signal provider, extracting company/domain/evidence only and never treating Wellfound job text as trusted corpus data
 - **FR52:** Pipeline can query Common Crawl indexes for supported public ATS URL patterns, deduplicate ATS slugs, and validate candidates before activation
 - **FR53:** Pipeline can discover company signals from YC company directories and VC portfolio pages, then verify hiring through canonical company or ATS sources
@@ -183,7 +183,7 @@ This document provides the complete epic and story breakdown for be-an-ai-engine
 - **FR47:** Epic 4 - Committed craft-signal documentation artifacts
 - **FR48:** Epic 3 - Company discovery signal registry
 - **FR49:** Epic 3 - Canonical source resolver
-- **FR50:** Epic 3 - Google Custom Search signal provider
+- **FR50:** Epic 3 - Vertex AI Search signal provider
 - **FR51:** Epic 3 - Wellfound constrained signal provider
 - **FR52:** Epic 3 - Common Crawl ATS index provider
 - **FR53:** Epic 3 - YC and VC company discovery providers
@@ -350,7 +350,7 @@ So that weekly ingestion scans the widest practical AI-engineering market corpus
 
 ## Epic 3: Company Discovery & Canonical Source Expansion (The "Company Radar")
 
-The developer can expand market scanning beyond manual seeds by discovering companies and direct ATS sources from HN, Google Custom Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit. The system resolves company signals to canonical careers or ATS sources, validates live relevant jobs, and reports provider yield before sources become active in weekly ingestion.
+The developer can expand market scanning beyond manual seeds by discovering companies and direct ATS sources from HN, Vertex AI Search, constrained Wellfound signals, Common Crawl, YC, VC portfolios, GitHub, and Reddit. The system resolves company signals to canonical careers or ATS sources, validates live relevant jobs, and reports provider yield before sources become active in weekly ingestion.
 
 ### Story 3.1: Company Signals and Canonical Source Resolver
 
@@ -368,19 +368,19 @@ So that later provider integrations can identify which companies are worth check
 **And** the resolver never executes JavaScript, uses browser automation, follows unbounded links, or activates a source without existing ATS/JSON-LD validation
 **And** rejected or unresolved companies persist visible rejection reasons for diagnostics.
 
-### Story 3.2: Google and Wellfound Direct Hiring Signal Providers
+### Story 3.2: Vertex AI Search and Wellfound Direct Hiring Signal Providers
 
 As a transitioning developer,
-I want Google Custom Search and constrained Wellfound signals to identify companies that may be hiring,
+I want Vertex AI Search and constrained Wellfound signals to identify companies that may be hiring,
 So that the market scanner can discover fresh startup and AI/backend opportunities while still validating jobs from canonical company sources.
 
 **Acceptance Criteria:**
 
-**Given** optional Google Custom Search credentials are configured
+**Given** optional Vertex AI Search credentials are configured
 **When** source discovery runs
-**Then** `GoogleSearchSignalProvider` uses only the official Custom Search JSON API with a configurable daily cap defaulting to 100 queries/day
-**And** Google results store query text, result URL, title, snippet, rank, provider metadata, and evidence URL as signals only
-**And** no Google result page or Google Jobs page is scraped or treated as trusted job data
+**Then** `VertexAISearchSignalProvider` uses only the official Discovery Engine `searchLite` API with durable local daily/monthly caps
+**And** Vertex AI Search results store query text, result URL, title, snippet, rank, provider metadata, and evidence URL as signals only
+**And** no search result page, Google Jobs page, or unofficial SERP endpoint is scraped or treated as trusted job data
 **And** `WellfoundSignalProvider` is disabled by default unless explicitly enabled
 **And** Wellfound extraction supports manual/imported company URLs first and, if automated public extraction is enabled, enforces no login, no browser automation, no pagination crawling, no disallowed `/_jobs/` crawling, max 5 pages/run by default, and 5+ second request delay
 **And** Wellfound output stores only company name, domain/homepage if visible, evidence URL, and confidence before canonical validation.
@@ -440,12 +440,12 @@ So that extraction is structured, audit-logged, and fails safely if the proxy is
 ### Story 4.2: Labeled Eval Set Management & Accuracy Audits
 
 As a developer,
-I want a database migration `V006__add_evals.sql` that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
+I want a database migration `V007__add_evals.sql` that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
 So that extraction accuracy is measured mathematically and regression is flagged automatically.
 
 **Acceptance Criteria:**
 
-**Given** a database migration `backend/db/migrations/V006__add_evals.sql`
+**Given** a database migration `backend/db/migrations/V007__add_evals.sql`
 **When** migrations are run
 **Then** tables `evaluation_runs` and `eval_postings` are created
 **And** `backend/services/evaluator.py` can load a 20-sample hand-labeled ground-truth dataset (10 training / 10 held-out) with known classifications
@@ -623,7 +623,6 @@ So that hiring managers can verify my consistent job-search activity in a 90-sec
 **Then** the UI renders a publicly accessible log of all Loop B weekly metrics (applications, interviews, voice notes, LinkedIn posts) loaded from `loop-b-log.md` or a database
 **And** a link is provided to open `loop-b-log.md` directly in the GitHub repository
 **And** each weekly row includes links to public commits or LinkedIn posts, proving consistent build-in-public progression.
-
 
 
 

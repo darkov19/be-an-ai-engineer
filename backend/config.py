@@ -83,6 +83,8 @@ class Settings(BaseSettings):
     discovery_repeated_rejection_window_days: int = 30
     discovery_repeated_rejection_count: int = 3
     discovery_high_yield_min_validated_sources: int = 2
+    discovery_max_company_signals_per_run: int = 250
+    discovery_max_company_resolutions_per_run: int = 100
     
     # Configure model config to resolve the environment file relative to the project structure
     model_config = SettingsConfigDict(

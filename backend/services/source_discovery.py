@@ -216,6 +216,60 @@ def _safe_provider_error(exc: Exception) -> str:
     )
 
 
+def _limit_company_signals(
+    company_signals: list[CompanySignal],
+    provider_diagnostics: dict[str, dict],
+) -> list[CompanySignal]:
+    max_signals = max(0, int(settings.discovery_max_company_signals_per_run or 0))
+    if len(company_signals) <= max_signals:
+        return company_signals
+
+    dropped = company_signals[max_signals:]
+    dropped_by_provider = Counter(str(getattr(signal, "provider", "") or "unknown") for signal in dropped)
+    provider_diagnostics["company_signal_orchestration"] = {
+        "status": "cap_exhausted",
+        "cap_type": "company_signals",
+        "max_company_signals_per_run": max_signals,
+        "signals_seen": len(company_signals),
+        "signals_kept": max_signals,
+        "signals_dropped": len(dropped),
+        "dropped_by_provider": dict(dropped_by_provider),
+    }
+    return company_signals[:max_signals]
+
+
+def _limit_company_resolutions(
+    normalized_company_signals: list[CompanySignal],
+    company_resolutions: list[CompanySignalResolution],
+    provider_diagnostics: dict[str, dict],
+) -> list[CompanySignal]:
+    max_resolutions = max(0, int(settings.discovery_max_company_resolutions_per_run or 0))
+    if len(normalized_company_signals) <= max_resolutions:
+        return normalized_company_signals
+
+    dropped = normalized_company_signals[max_resolutions:]
+    dropped_by_provider = Counter(signal.provider or "unknown" for signal in dropped)
+    provider_diagnostics["company_signal_orchestration"] = {
+        **provider_diagnostics.get("company_signal_orchestration", {}),
+        "status": "cap_exhausted",
+        "cap_type": "company_resolutions",
+        "max_company_resolutions_per_run": max_resolutions,
+        "resolutions_seen": len(normalized_company_signals),
+        "resolutions_kept": max_resolutions,
+        "resolutions_dropped": len(dropped),
+        "resolution_dropped_by_provider": dict(dropped_by_provider),
+    }
+    for signal in dropped:
+        company_resolutions.append(
+            CompanySignalResolution(
+                signal=signal,
+                status="rejected",
+                rejection_reason="resolution_cap_exceeded",
+            )
+        )
+    return normalized_company_signals[:max_resolutions]
+
+
 def _split_config_list(value: str | list[str] | tuple[str, ...] | None, default: tuple[str, ...] = ()) -> list[str]:
     if value is None:
         return list(default)
@@ -2534,7 +2588,8 @@ async def compute_provider_yield(
     active_source_keys_before_run: Optional[set[tuple[str, str]]] = None,
 ) -> dict:
     diagnostics = company_discovery_result.provider_diagnostics or {}
-    names = set(provider_names) | set(diagnostics.keys()) | set(company_discovery_result.provider_errors.keys())
+    provider_diagnostic_names = {name for name in diagnostics.keys() if name != "company_signal_orchestration"}
+    names = set(provider_names) | provider_diagnostic_names | set(company_discovery_result.provider_errors.keys())
     names.update(result.candidate.discovery_method for result in validation_results if result.candidate.discovery_method)
     names.update(signal.provider for signal in company_discovery_result.signals)
     providers = {name: _empty_provider_yield(name, diagnostics.get(name)) for name in sorted(names)}
@@ -2543,6 +2598,8 @@ async def compute_provider_yield(
     counted_validation_keys: set[tuple[str, str, str, str]] = set()
 
     for provider, provider_diagnostics in diagnostics.items():
+        if provider == "company_signal_orchestration":
+            continue
         metrics = providers.setdefault(provider, _empty_provider_yield(provider, provider_diagnostics))
         metrics["error_count"] += int(provider_diagnostics.get("error_count") or 0)
         metrics["unsupported_url_count"] += int(
@@ -2798,6 +2855,7 @@ async def discover_sources(
     if provider_errors and len(provider_errors) == len(configured_providers):
         raise RuntimeError(f"All source discovery providers failed: {'; '.join(errors)}")
 
+    company_signals = _limit_company_signals(company_signals, provider_diagnostics)
     if company_signals:
         from backend.services.canonical_resolver import resolve_company_signal
 
@@ -2829,6 +2887,11 @@ async def discover_sources(
                 )
             )
 
+        normalized_company_signals = _limit_company_resolutions(
+            normalized_company_signals,
+            company_resolutions,
+            provider_diagnostics,
+        )
         for signal in normalized_company_signals:
             try:
                 resolution = await resolve_company_signal(signal)
