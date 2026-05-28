@@ -7,14 +7,17 @@ import httpx
 import pytest
 
 from backend.services.source_discovery import (
+    CommonCrawlATSProvider,
     DiscoveryProviderResult,
     DiscoveryRunResult,
     HNWhoIsHiringProvider,
     OptionalSeedProvider,
     SourceCandidate,
     ValidationResult,
+    VCPortfolioProvider,
     VertexAISearchSignalProvider,
     WellfoundSignalProvider,
+    YCCompanyDirectoryProvider,
     default_discovery_providers,
     discover_sources,
     discover_from_hn,
@@ -45,6 +48,9 @@ def disable_env_configured_optional_providers():
     with (
         patch("backend.services.source_discovery.settings.vertex_search_enabled", False),
         patch("backend.services.source_discovery.settings.wellfound_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.common_crawl_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.yc_company_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.vc_portfolio_discovery_enabled", False),
     ):
         yield
 
@@ -53,6 +59,29 @@ def read_discovery_report(report_dir: Path) -> dict:
     report_files = list(report_dir.glob("source-discovery-report-*.json"))
     assert len(report_files) == 1
     return json.loads(report_files[0].read_text(encoding="utf-8"))
+
+
+class AsyncStreamContext:
+    def __init__(self, response):
+        self.response = response
+
+    async def __aenter__(self):
+        return self.response
+
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+
+
+class AsyncLineResponse:
+    def __init__(self, text: str):
+        self.text = text
+
+    def raise_for_status(self):
+        return None
+
+    async def aiter_lines(self):
+        for line in self.text.splitlines():
+            yield line
 
 
 def test_normalize_ats_url_supported_patterns():
@@ -239,6 +268,51 @@ def test_default_discovery_providers_include_seed_as_optional_provider(tmp_path)
     assert [provider.name for provider in providers] == ["hn_who_is_hiring", "seed_file"]
     assert isinstance(providers[0], HNWhoIsHiringProvider)
     assert isinstance(providers[1], OptionalSeedProvider)
+
+
+def test_default_discovery_providers_append_enabled_scale_providers(tmp_path):
+    with (
+        patch("backend.services.source_discovery.settings.vertex_search_enabled", False),
+        patch("backend.services.source_discovery.settings.wellfound_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.common_crawl_discovery_enabled", True),
+        patch("backend.services.source_discovery.settings.common_crawl_crawl_ids", "CC-MAIN-2026-18"),
+        patch("backend.services.source_discovery.settings.yc_company_discovery_enabled", True),
+        patch("backend.services.source_discovery.settings.yc_company_import_file", str(tmp_path / "yc.json")),
+        patch("backend.services.source_discovery.settings.vc_portfolio_discovery_enabled", True),
+        patch("backend.services.source_discovery.settings.vc_portfolio_import_file", str(tmp_path / "vc.json")),
+    ):
+        providers = default_discovery_providers(tmp_path / "missing-seeds.json")
+
+    assert [provider.name for provider in providers] == [
+        "hn_who_is_hiring",
+        "seed_file",
+        "common_crawl_ats",
+        "yc_company_directory",
+        "vc_portfolio",
+    ]
+    assert isinstance(providers[2], CommonCrawlATSProvider)
+    assert isinstance(providers[3], YCCompanyDirectoryProvider)
+    assert isinstance(providers[4], VCPortfolioProvider)
+
+
+@pytest.mark.asyncio
+async def test_default_discovery_providers_reports_invalid_vc_targets_json(tmp_path):
+    with (
+        patch("backend.services.source_discovery.settings.vertex_search_enabled", False),
+        patch("backend.services.source_discovery.settings.wellfound_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.common_crawl_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.yc_company_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.vc_portfolio_discovery_enabled", True),
+        patch("backend.services.source_discovery.settings.vc_portfolio_targets_json", "{bad json"),
+    ):
+        providers = default_discovery_providers(tmp_path / "missing-seeds.json")
+
+    assert [provider.name for provider in providers] == ["hn_who_is_hiring", "seed_file", "vc_portfolio"]
+    result = await providers[-1].discover()
+    diagnostics = result.provider_diagnostics["vc_portfolio"]
+    assert diagnostics["status"] == "error"
+    assert diagnostics["reason"] == "invalid_vc_portfolio_targets_json"
+    assert diagnostics["target_count"] == 0
 
 
 @pytest.mark.asyncio
@@ -905,6 +979,388 @@ def test_wellfound_disallowed_public_urls_are_rejected():
     assert not provider.is_allowed_public_page("https://wellfound.com/company/acme?jobId=123")
     assert not provider.is_allowed_public_page("https://wellfound.com/company/acme?jobId=")
     assert not provider.is_allowed_public_page("https://wellfound.com/login")
+
+
+@pytest.mark.asyncio
+async def test_common_crawl_provider_skips_when_disabled():
+    provider = CommonCrawlATSProvider(enabled=False)
+
+    result = await provider.discover()
+
+    assert result.candidates == []
+    assert result.provider_diagnostics["common_crawl_ats"]["status"] == "disabled"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.stream")
+@patch("httpx.AsyncClient.get")
+async def test_common_crawl_uses_collinfo_cdx_endpoint_and_parses_ndjson(mock_get, mock_stream):
+    collinfo_response = MagicMock()
+    collinfo_response.json.return_value = [
+        {"id": "CC-MAIN-2026-18", "cdx-api": "https://index.commoncrawl.org/cc-main-2026-18-index"}
+    ]
+    collinfo_response.raise_for_status.return_value = None
+    cdx_text = "\n".join(
+        [
+            json.dumps({"url": "https://boards.greenhouse.io/acme/jobs/123", "status": "200"}),
+            "{bad json",
+            json.dumps({"url": "https://example.com/careers", "status": "200"}),
+            "",
+        ]
+    )
+    mock_get.return_value = collinfo_response
+    mock_stream.return_value = AsyncStreamContext(AsyncLineResponse(cdx_text))
+    provider = CommonCrawlATSProvider(
+        enabled=True,
+        crawl_ids=None,
+        max_crawls=1,
+        url_patterns=["boards.greenhouse.io/*"],
+        max_records_per_pattern=5,
+        total_record_cap=5,
+        request_delay_seconds=0,
+    )
+
+    result = await provider.discover()
+
+    assert mock_get.await_args_list[0].args == ("https://index.commoncrawl.org/collinfo.json",)
+    assert mock_stream.call_args_list[0].args == ("GET", "https://index.commoncrawl.org/cc-main-2026-18-index")
+    assert mock_stream.call_args_list[0].kwargs["params"] == {
+        "url": "boards.greenhouse.io/*",
+        "output": "json",
+        "limit": 5,
+        "filter": "=status:200",
+        "fl": "url,status,mime,timestamp",
+    }
+    assert [(candidate.ats, candidate.slug) for candidate in result.candidates] == [("greenhouse", "acme")]
+    assert result.candidates[0].discovery_method == "common_crawl_ats"
+    assert result.candidates[0].metadata["source_urls"] == ["https://boards.greenhouse.io/acme/jobs/123"]
+    assert result.unsupported_urls == ["https://example.com/careers"]
+    diagnostics = result.provider_diagnostics["common_crawl_ats"]
+    assert diagnostics["crawl_ids_queried"] == ["CC-MAIN-2026-18"]
+    assert diagnostics["records_scanned"] == 2
+    assert diagnostics["malformed_records"] == 1
+    assert diagnostics["candidate_count"] == 1
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.stream")
+async def test_common_crawl_enforces_total_record_cap(mock_stream):
+    cdx_text = "\n".join(
+        [
+            json.dumps({"url": "https://jobs.lever.co/acme/1"}),
+            json.dumps({"url": "https://jobs.lever.co/bravo/1"}),
+        ]
+    )
+    mock_stream.return_value = AsyncStreamContext(AsyncLineResponse(cdx_text))
+    provider = CommonCrawlATSProvider(
+        enabled=True,
+        crawl_ids=["CC-MAIN-2026-18"],
+        max_crawls=1,
+        url_patterns=["jobs.lever.co/*", "jobs.ashbyhq.com/*"],
+        max_records_per_pattern=2,
+        total_record_cap=1,
+        request_delay_seconds=0,
+    )
+
+    result = await provider.discover()
+
+    assert mock_stream.call_count == 1
+    diagnostics = result.provider_diagnostics["common_crawl_ats"]
+    assert diagnostics["records_scanned"] == 1
+    assert diagnostics["cap_exhausted"] is True
+    assert [(candidate.ats, candidate.slug) for candidate in result.candidates] == [("lever", "acme")]
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_common_crawl_malformed_index_reports_diagnostics(mock_get):
+    response = MagicMock()
+    response.json.return_value = {"bad": "shape"}
+    response.raise_for_status.return_value = None
+    mock_get.return_value = response
+    provider = CommonCrawlATSProvider(enabled=True, crawl_ids=None, max_crawls=1, request_delay_seconds=0)
+
+    result = await provider.discover()
+
+    assert result.candidates == []
+    diagnostics = result.provider_diagnostics["common_crawl_ats"]
+    assert diagnostics["status"] == "error"
+    assert diagnostics["reason"] == "malformed_index"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.stream")
+async def test_common_crawl_transport_errors_are_diagnostics(mock_stream):
+    mock_stream.side_effect = httpx.TimeoutException("timeout key=secret")
+    provider = CommonCrawlATSProvider(
+        enabled=True,
+        crawl_ids=["CC-MAIN-2026-18"],
+        url_patterns=["jobs.lever.co/*"],
+        request_delay_seconds=0,
+    )
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["common_crawl_ats"]
+    assert diagnostics["status"] == "error"
+    assert "secret" not in json.dumps(diagnostics)
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.stream")
+async def test_common_crawl_rejects_oversized_cdx_responses(mock_stream):
+    cdx_text = json.dumps({"url": "https://jobs.lever.co/acme/1"}) + "\n" + ("x" * 100)
+    mock_stream.return_value = AsyncStreamContext(AsyncLineResponse(cdx_text))
+    provider = CommonCrawlATSProvider(
+        enabled=True,
+        crawl_ids=["CC-MAIN-2026-18"],
+        url_patterns=["jobs.lever.co/*"],
+        max_response_bytes=20,
+        request_delay_seconds=0,
+    )
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["common_crawl_ats"]
+    assert diagnostics["status"] == "error"
+    assert diagnostics["per_pattern"][0]["errors"] == ["cdx_response_too_large"]
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.stream")
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.validate_candidate_source", new_callable=AsyncMock)
+async def test_discover_sources_validates_common_crawl_candidates_through_parser_path(
+    mock_validate,
+    mock_persist,
+    mock_persist_company,
+    mock_stream,
+    tmp_path,
+):
+    cdx_text = json.dumps({"url": "https://jobs.lever.co/acme/1"})
+    mock_stream.return_value = AsyncStreamContext(AsyncLineResponse(cdx_text))
+
+    async def fake_validate(candidate):
+        return ValidationResult(candidate, "validated", job_count=1, usable_job_count=1, relevant_job_count=1)
+
+    mock_validate.side_effect = fake_validate
+    provider = CommonCrawlATSProvider(
+        enabled=True,
+        crawl_ids=["CC-MAIN-2026-18"],
+        url_patterns=["jobs.lever.co/*"],
+        request_delay_seconds=0,
+    )
+
+    result = await discover_sources(MagicMock(), providers=[provider], report_dir=tmp_path)
+
+    assert result.validated_count == 1
+    validated_candidate = mock_validate.await_args.args[0]
+    assert validated_candidate.discovery_method == "common_crawl_ats"
+    assert (validated_candidate.ats, validated_candidate.slug) == ("lever", "acme")
+    mock_persist.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_yc_provider_import_maps_signals_and_rejections(tmp_path):
+    import_file = tmp_path / "yc.json"
+    import_file.write_text(
+        json.dumps(
+            {
+                "companies": [
+                    {
+                        "name": "Acme AI",
+                        "website": "https://acme.example",
+                        "yc_url": "https://www.ycombinator.com/companies/acme-ai",
+                        "tags": ["AI", "Developer Tools"],
+                        "batch": "S25",
+                        "status": "Active",
+                    },
+                    {
+                        "name": "Name Only",
+                        "yc_url": "https://www.ycombinator.com/companies/name-only",
+                    },
+                    {"name": "Broken", "website": "not-a-url", "yc_url": "not-a-url"},
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = YCCompanyDirectoryProvider(enabled=True, import_file=import_file, categories=["ai"], max_total_companies=10)
+
+    result = await provider.discover()
+
+    assert len(result.company_signals) == 1
+    signal = result.company_signals[0]
+    assert signal.provider == "yc_company_directory"
+    assert signal.company_name == "Acme AI"
+    assert signal.company_domain == "acme.example"
+    assert signal.evidence_url == "https://www.ycombinator.com/companies/acme-ai"
+    assert signal.category_hints == ["AI", "Developer Tools"]
+    assert signal.metadata["batch"] == "S25"
+    diagnostics = result.provider_diagnostics["yc_company_directory"]
+    assert diagnostics["status"] == "ok"
+    assert diagnostics["category_counts"]["ai"] == 1
+    assert diagnostics["rejected_signal_reasons"]["missing_company_locator"] == 1
+    assert diagnostics["rejected_signal_reasons"]["invalid_evidence_url"] == 1
+
+
+@pytest.mark.asyncio
+async def test_yc_public_extraction_is_bounded_and_uses_no_logged_in_paths():
+    html = """
+      <a href="/companies/acme-ai">Acme AI</a>
+      <a href="https://acme.example">Home</a>
+      <a href="/jobs">Work at a Startup</a>
+    """
+    provider = YCCompanyDirectoryProvider(enabled=True, categories=["ai"], max_total_companies=5)
+    provider._fetch_public_category = AsyncMock(return_value=html)
+
+    result = await provider.discover()
+
+    provider._fetch_public_category.assert_awaited_once()
+    assert result.company_signals[0].provider == "yc_company_directory"
+    assert result.company_signals[0].company_domain == "acme.example"
+    assert result.provider_diagnostics["yc_company_directory"]["category_counts"]["ai"] == 1
+    assert "/jobs" not in json.dumps(result.company_signals[0].metadata)
+
+
+@pytest.mark.asyncio
+async def test_vc_portfolio_import_maps_signals_rejections_and_caps(tmp_path):
+    import_file = tmp_path / "vc.json"
+    import_file.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "firm": "a16z",
+                        "portfolio_url": "https://a16z.com/portfolio",
+                        "companies": [
+                            {"name": "Acme", "homepage_url": "https://acme.example"},
+                            {"name": "Name Only"},
+                            {"name": "Ignored", "homepage_url": "https://ignored.example"},
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    provider = VCPortfolioProvider(enabled=True, import_file=import_file, max_companies_per_target=2)
+
+    result = await provider.discover()
+
+    assert len(result.company_signals) == 1
+    signal = result.company_signals[0]
+    assert signal.provider == "vc_portfolio"
+    assert signal.company_name == "Acme"
+    assert signal.company_domain == "acme.example"
+    assert signal.evidence_url == "https://a16z.com/portfolio"
+    assert signal.metadata["vc_firm"] == "a16z"
+    diagnostics = result.provider_diagnostics["vc_portfolio"]
+    assert diagnostics["target_count"] == 1
+    assert diagnostics["per_target"][0]["cap_exhausted"] is True
+    assert diagnostics["rejected_signal_reasons"]["missing_company_locator"] == 1
+
+
+@pytest.mark.asyncio
+async def test_vc_public_extracts_homepages_with_response_caps():
+    html = """
+      <a href="https://acme.example">Acme</a>
+      <a href="https://jobs.lever.co/acme">Jobs</a>
+      <a href="/talent">Talent</a>
+    """
+    provider = VCPortfolioProvider(
+        enabled=True,
+        targets=[{"firm": "Conviction", "url": "https://conviction.com/portfolio"}],
+        max_companies_per_target=5,
+    )
+    provider._fetch_portfolio_page = AsyncMock(return_value=html)
+
+    result = await provider.discover()
+
+    assert [signal.company_domain for signal in result.company_signals if signal.company_domain] == ["acme.example"]
+    assert [signal.direct_ats_url for signal in result.company_signals if signal.direct_ats_url] == [
+        "https://jobs.lever.co/acme"
+    ]
+    assert result.company_signals[0].metadata["source_type"] == "public_extract"
+    assert result.provider_diagnostics["vc_portfolio"]["target_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_vc_malformed_import_json_reports_provider_diagnostics(tmp_path):
+    import_file = tmp_path / "vc.json"
+    import_file.write_text("{bad json", encoding="utf-8")
+    provider = VCPortfolioProvider(enabled=True, import_file=import_file)
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["vc_portfolio"]
+    assert diagnostics["status"] == "error"
+    assert diagnostics["reason"] == "invalid_import_file"
+    assert "Invalid discovery import JSON" in diagnostics["last_error"]
+
+
+@pytest.mark.asyncio
+@patch("backend.services.canonical_resolver.resolve_company_signal", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_resolves_yc_and_vc_provider_signals(
+    mock_persist,
+    mock_persist_company,
+    mock_resolve,
+    tmp_path,
+):
+    yc_import = tmp_path / "yc.json"
+    yc_import.write_text(
+        json.dumps(
+            {
+                "companies": [
+                    {
+                        "name": "Acme AI",
+                        "website": "https://acme.example",
+                        "yc_url": "https://www.ycombinator.com/companies/acme-ai",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    vc_import = tmp_path / "vc.json"
+    vc_import.write_text(
+        json.dumps(
+            {
+                "targets": [
+                    {
+                        "firm": "a16z",
+                        "portfolio_url": "https://a16z.com/portfolio",
+                        "companies": [{"name": "Bravo", "homepage_url": "https://bravo.example"}],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    def unresolved(signal):
+        return CompanySignalResolution(signal=signal, status="unresolved", rejection_reason="no_canonical_source_found")
+
+    mock_resolve.side_effect = unresolved
+    providers = [
+        YCCompanyDirectoryProvider(enabled=True, import_file=yc_import, categories=["ai"]),
+        VCPortfolioProvider(enabled=True, import_file=vc_import),
+    ]
+
+    result = await discover_sources(MagicMock(), providers=providers, report_dir=tmp_path)
+
+    assert result.company_signal_counts["counts_by_provider"] == {
+        "yc_company_directory": 1,
+        "vc_portfolio": 1,
+    }
+    assert mock_resolve.await_count == 2
+    mock_persist_company.assert_awaited_once()
+    report = read_discovery_report(tmp_path)
+    assert report["company_signals"]["provider_diagnostics"]["yc_company_directory"]["signals_emitted"] == 1
+    assert report["company_signals"]["provider_diagnostics"]["vc_portfolio"]["signals_emitted"] == 1
 
 
 @pytest.mark.asyncio

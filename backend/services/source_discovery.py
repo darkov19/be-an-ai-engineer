@@ -87,6 +87,35 @@ WELLFOUND_DISALLOWED_PATH_PREFIXES = (
     "/apply",
 )
 WELLFOUND_DISALLOWED_QUERY_KEYS = {"jobid", "jobslug", "role", "page"}
+COMMON_CRAWL_COLINFO_URL = "https://index.commoncrawl.org/collinfo.json"
+COMMON_CRAWL_URL_PATTERNS = (
+    "boards.greenhouse.io/*",
+    "job-boards.greenhouse.io/*",
+    "jobs.lever.co/*",
+    "jobs.ashbyhq.com/*",
+    "apply.workable.com/*",
+    "*.recruitee.com/*",
+    "*.jobs.personio.de/*",
+    "*.jobs.personio.com/*",
+)
+YC_DEFAULT_CATEGORIES = (
+    "ai",
+    "developer-tools",
+    "infrastructure",
+    "data-engineering",
+    "databases",
+    "open-source",
+    "search",
+)
+VC_DEFAULT_TARGETS = (
+    {"firm": "a16z", "url": "https://a16z.com/portfolio"},
+    {"firm": "Sequoia", "url": "https://www.sequoiacap.com/companies"},
+    {"firm": "Index", "url": "https://www.indexventures.com/companies"},
+    {"firm": "Accel", "url": "https://www.accel.com/companies"},
+    {"firm": "Greylock", "url": "https://greylock.com/portfolio"},
+    {"firm": "Lightspeed", "url": "https://lsvp.com/portfolio"},
+    {"firm": "Conviction", "url": "https://www.conviction.com/portfolio"},
+)
 NOISE_UNSUPPORTED_HOSTS = {
     "www.linkedin.com",
     "linkedin.com",
@@ -190,6 +219,25 @@ def _default_provider_diagnostics() -> dict[str, dict]:
             "reason": "wellfound_discovery_disabled",
             "auto_extract_enabled": settings.wellfound_auto_extract_enabled,
             "max_pages_per_run": settings.wellfound_max_pages_per_run,
+        }
+    if not settings.common_crawl_discovery_enabled:
+        diagnostics["common_crawl_ats"] = {
+            "status": "disabled",
+            "reason": "common_crawl_discovery_disabled",
+            "max_crawls": settings.common_crawl_max_crawls,
+            "total_record_cap": settings.common_crawl_total_record_cap,
+        }
+    if not settings.yc_company_discovery_enabled:
+        diagnostics["yc_company_directory"] = {
+            "status": "disabled",
+            "reason": "yc_company_discovery_disabled",
+            "max_total_companies": settings.yc_company_max_total_companies,
+        }
+    if not settings.vc_portfolio_discovery_enabled:
+        diagnostics["vc_portfolio"] = {
+            "status": "disabled",
+            "reason": "vc_portfolio_discovery_disabled",
+            "max_companies_per_target": settings.vc_portfolio_max_companies_per_target,
         }
     return diagnostics
 
@@ -626,6 +674,593 @@ class WellfoundSignalProvider:
         )
 
 
+def _split_csv_setting(value: Optional[str] | list[str] | tuple[str, ...]) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        raw_items = value
+    else:
+        raw_items = str(value).split(",")
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
+def _load_json_entries(path: Optional[Path], *keys: str) -> list[dict]:
+    if not path or not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid discovery import JSON: {exc}") from exc
+    if isinstance(payload, list):
+        entries = payload
+    elif isinstance(payload, dict):
+        entries = []
+        for key in keys:
+            value = payload.get(key)
+            if isinstance(value, list):
+                entries = value
+                break
+    else:
+        entries = []
+    return [entry for entry in entries if isinstance(entry, dict)]
+
+
+def _category_key(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
+
+
+class LinkTextParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.links: list[dict[str, str]] = []
+        self._current_href: Optional[str] = None
+        self._current_text: list[str] = []
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+        attrs_dict = {name.lower(): value for name, value in attrs if value}
+        href = attrs_dict.get("href")
+        if href:
+            self._current_href = href
+            self._current_text = []
+
+    def handle_data(self, data):
+        if self._current_href and data:
+            self._current_text.append(data)
+
+    def handle_endtag(self, tag):
+        if tag.lower() != "a" or not self._current_href:
+            return
+        text = re.sub(r"\s+", " ", " ".join(self._current_text)).strip()
+        self.links.append({"href": self._current_href, "text": text})
+        self._current_href = None
+        self._current_text = []
+
+
+class CommonCrawlATSProvider:
+    name = "common_crawl_ats"
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        crawl_ids: Optional[str | list[str]] = None,
+        max_crawls: int = 1,
+        url_patterns: Optional[list[str]] = None,
+        max_records_per_pattern: int = 25,
+        total_record_cap: int = 100,
+        request_timeout_seconds: float = 5.0,
+        request_delay_seconds: float = 1.0,
+        max_response_bytes: int = 500_000,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        self.enabled = enabled
+        self.explicit_crawl_ids = _split_csv_setting(crawl_ids)
+        self.max_crawls = max(0, int(max_crawls or 0))
+        self.url_patterns = list(url_patterns or COMMON_CRAWL_URL_PATTERNS)
+        self.max_records_per_pattern = max(0, int(max_records_per_pattern or 0))
+        self.total_record_cap = max(0, int(total_record_cap or 0))
+        self.request_timeout_seconds = max(0.1, float(request_timeout_seconds or 0))
+        self.request_delay_seconds = max(0.0, float(request_delay_seconds or 0))
+        self.max_response_bytes = max(1, int(max_response_bytes or 1))
+        self.sleeper = sleeper
+        self.diagnostics: dict = {
+            "status": "enabled" if enabled else "disabled",
+            "crawl_ids_queried": [],
+            "pattern_count": 0,
+            "records_scanned": 0,
+            "candidate_count": 0,
+            "unsupported_count": 0,
+            "malformed_records": 0,
+            "cap_exhausted": False,
+            "errors": [],
+            "per_pattern": [],
+        }
+
+    async def discover(self) -> DiscoveryProviderResult:
+        if not self.enabled:
+            self.diagnostics["reason"] = "common_crawl_discovery_disabled"
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if self.max_crawls == 0 or self.max_records_per_pattern == 0 or self.total_record_cap == 0:
+            self.diagnostics.update({"status": "cap_exhausted", "cap_exhausted": True})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+
+        crawl_indexes = []
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+            if self.explicit_crawl_ids:
+                crawl_indexes = [
+                    {
+                        "id": crawl_id,
+                        "cdx_api": f"https://index.commoncrawl.org/{crawl_id}-index",
+                    }
+                    for crawl_id in self.explicit_crawl_ids[: self.max_crawls]
+                ]
+            else:
+                crawl_indexes = await self._fetch_crawl_indexes(client)
+                if not crawl_indexes:
+                    return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+
+            candidates: list[SourceCandidate] = []
+            unsupported_urls: list[str] = []
+            request_index = 0
+            for crawl in crawl_indexes[: self.max_crawls]:
+                crawl_id = crawl["id"]
+                self.diagnostics["crawl_ids_queried"].append(crawl_id)
+                for pattern in self.url_patterns:
+                    if int(self.diagnostics["records_scanned"]) >= self.total_record_cap:
+                        self.diagnostics["cap_exhausted"] = True
+                        break
+                    if request_index > 0 and self.request_delay_seconds:
+                        await self.sleeper(self.request_delay_seconds)
+                    request_index += 1
+                    pattern_diagnostics = {
+                        "crawl_id": crawl_id,
+                        "url_pattern": pattern,
+                        "records_returned": 0,
+                        "candidates_emitted": 0,
+                        "unsupported_count": 0,
+                        "cap_exhausted": False,
+                        "errors": [],
+                    }
+                    self.diagnostics["pattern_count"] = int(self.diagnostics["pattern_count"]) + 1
+                    try:
+                        params = {
+                            "url": pattern,
+                            "output": "json",
+                            "limit": self.max_records_per_pattern,
+                            "filter": "=status:200",
+                            "fl": "url,status,mime,timestamp",
+                        }
+                        async for raw_line in self._iter_cdx_lines(client, crawl["cdx_api"], params):
+                            if int(self.diagnostics["records_scanned"]) >= self.total_record_cap:
+                                self.diagnostics["cap_exhausted"] = True
+                                pattern_diagnostics["cap_exhausted"] = True
+                                break
+                            line = raw_line.strip()
+                            if not line:
+                                continue
+                            try:
+                                record = json.loads(line)
+                            except json.JSONDecodeError:
+                                self.diagnostics["malformed_records"] = int(self.diagnostics["malformed_records"]) + 1
+                                continue
+                            if not isinstance(record, dict):
+                                self.diagnostics["malformed_records"] = int(self.diagnostics["malformed_records"]) + 1
+                                continue
+                            raw_url = str(record.get("url") or "")
+                            if not raw_url:
+                                self.diagnostics["malformed_records"] = int(self.diagnostics["malformed_records"]) + 1
+                                continue
+                            self.diagnostics["records_scanned"] = int(self.diagnostics["records_scanned"]) + 1
+                            pattern_diagnostics["records_returned"] += 1
+                            candidate = normalize_ats_url(raw_url, self.name)
+                            if candidate:
+                                candidate.metadata["common_crawl"] = {
+                                    "crawl_id": crawl_id,
+                                    "url_pattern": pattern,
+                                    "timestamp": record.get("timestamp"),
+                                    "status": record.get("status"),
+                                    "mime": record.get("mime"),
+                                }
+                                candidates.append(candidate)
+                                pattern_diagnostics["candidates_emitted"] += 1
+                            else:
+                                unsupported_urls.append(raw_url)
+                                pattern_diagnostics["unsupported_count"] += 1
+                    except Exception as exc:
+                        safe_error = _safe_provider_error(exc)
+                        pattern_diagnostics["errors"].append(safe_error)
+                        self.diagnostics.setdefault("errors", []).append(safe_error)
+                    self.diagnostics["per_pattern"].append(pattern_diagnostics)
+                if self.diagnostics.get("cap_exhausted"):
+                    break
+
+        deduped = dedupe_candidates(candidates)
+        self.diagnostics["candidate_count"] = len(deduped)
+        self.diagnostics["unsupported_count"] = len(unsupported_urls)
+        if self.diagnostics.get("errors") and not deduped and not unsupported_urls:
+            self.diagnostics["status"] = "error"
+        elif self.diagnostics.get("errors"):
+            self.diagnostics["status"] = "partial_error"
+        else:
+            self.diagnostics["status"] = "ok"
+        return DiscoveryProviderResult(
+            candidates=deduped,
+            unsupported_urls=unsupported_urls,
+            provider_diagnostics={self.name: dict(self.diagnostics)},
+        )
+
+    async def _iter_cdx_lines(self, client: httpx.AsyncClient, cdx_api: str, params: dict):
+        bytes_seen = 0
+        async with client.stream("GET", cdx_api, params=params) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                bytes_seen += len(line.encode("utf-8")) + 1
+                if bytes_seen > self.max_response_bytes:
+                    raise ValueError("cdx_response_too_large")
+                yield line
+
+    async def _fetch_crawl_indexes(self, client: httpx.AsyncClient) -> list[dict]:
+        try:
+            response = await client.get(COMMON_CRAWL_COLINFO_URL)
+            response.raise_for_status()
+            payload = response.json()
+        except Exception as exc:
+            self.diagnostics.update({"status": "error", "reason": "index_unavailable", "last_error": _safe_provider_error(exc)})
+            return []
+        if not isinstance(payload, list):
+            self.diagnostics.update({"status": "error", "reason": "malformed_index"})
+            return []
+        indexes = []
+        for item in payload:
+            if not isinstance(item, dict) or not item.get("id"):
+                continue
+            cdx_api = item.get("cdx-api") or item.get("cdx_api")
+            if not cdx_api:
+                continue
+            indexes.append({"id": str(item["id"]), "cdx_api": str(cdx_api)})
+            if len(indexes) >= self.max_crawls:
+                break
+        if not indexes:
+            self.diagnostics.update({"status": "error", "reason": "no_usable_cdx_api"})
+        return indexes
+
+
+class YCCompanyDirectoryProvider:
+    name = "yc_company_directory"
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        categories: Optional[str | list[str]] = None,
+        import_file: Optional[Path | str] = None,
+        max_companies_per_category: int = 25,
+        max_total_companies: int = 100,
+        request_timeout_seconds: float = 5.0,
+        max_response_bytes: int = 500_000,
+    ):
+        self.enabled = enabled
+        self.categories = _split_csv_setting(categories) or list(YC_DEFAULT_CATEGORIES)
+        self.import_file = Path(import_file) if import_file else None
+        self.max_companies_per_category = max(0, int(max_companies_per_category or 0))
+        self.max_total_companies = max(0, int(max_total_companies or 0))
+        self.request_timeout_seconds = max(0.1, float(request_timeout_seconds or 0))
+        self.max_response_bytes = max(1, int(max_response_bytes or 1))
+        self.diagnostics: dict = {
+            "status": "enabled" if enabled else "disabled",
+            "category_counts": {},
+            "rejected_signal_reasons": {},
+            "rows_seen": 0,
+            "signals_emitted": 0,
+            "errors": [],
+        }
+
+    async def discover(self) -> DiscoveryProviderResult:
+        if not self.enabled:
+            self.diagnostics["reason"] = "yc_company_discovery_disabled"
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+
+        raw_entries: list[dict] = []
+        try:
+            raw_entries.extend(_load_json_entries(self.import_file, "companies", "entries", "sources"))
+        except Exception as exc:
+            self.diagnostics["errors"].append(_safe_provider_error(exc))
+            self.diagnostics["status"] = "partial_error"
+
+        if not raw_entries:
+            async with httpx.AsyncClient(timeout=self.request_timeout_seconds, follow_redirects=True) as client:
+                for category in self.categories:
+                    if len(raw_entries) >= self.max_total_companies:
+                        break
+                    try:
+                        html = await self._fetch_public_category(client, category)
+                        entries = self._extract_entries_from_public_html(category, html)
+                        raw_entries.extend(entries[: self.max_companies_per_category])
+                    except Exception as exc:
+                        self.diagnostics["errors"].append(_safe_provider_error(exc))
+                        self.diagnostics["status"] = "partial_error"
+
+        signals = []
+        for entry in raw_entries[: self.max_total_companies]:
+            self.diagnostics["rows_seen"] = int(self.diagnostics["rows_seen"]) + 1
+            signal = self._signal_from_entry(entry)
+            if signal:
+                signals.append(signal)
+        self.diagnostics["signals_emitted"] = len(signals)
+        if self.diagnostics.get("errors") and not signals:
+            self.diagnostics["status"] = "error"
+        elif self.diagnostics.get("status") != "partial_error":
+            self.diagnostics["status"] = "ok"
+        return DiscoveryProviderResult(company_signals=signals, provider_diagnostics={self.name: dict(self.diagnostics)})
+
+    async def _fetch_public_category(self, client: httpx.AsyncClient, category: str) -> str:
+        response = await client.get("https://www.ycombinator.com/companies", params={"industry": category})
+        response.raise_for_status()
+        content = response.content
+        if len(content) > self.max_response_bytes:
+            raise ValueError("response_too_large")
+        return content.decode(response.encoding or "utf-8", errors="replace")
+
+    def _extract_entries_from_public_html(self, category: str, html: str) -> list[dict]:
+        parser = LinkTextParser()
+        try:
+            parser.feed(html or "")
+        except Exception:
+            pass
+        entries = []
+        pending_company: Optional[dict] = None
+        for link in parser.links:
+            href = urljoin("https://www.ycombinator.com", link["href"])
+            parsed = urlparse(href)
+            if parsed.netloc in {"www.ycombinator.com", "ycombinator.com"} and parsed.path.startswith("/companies/"):
+                pending_company = {
+                    "name": link.get("text"),
+                    "yc_url": href,
+                    "category_hints": [category],
+                    "category": category,
+                }
+                continue
+            if pending_company and parsed.netloc not in {"www.ycombinator.com", "ycombinator.com"}:
+                pending_company["website"] = href
+                entries.append(pending_company)
+                pending_company = None
+            if len(entries) >= self.max_companies_per_category:
+                break
+        return entries
+
+    def _signal_from_entry(self, entry: dict) -> Optional[CompanySignal]:
+        evidence_url = _normalized_http_url(
+            str(entry.get("yc_url") or entry.get("evidence_url") or entry.get("url") or entry.get("website") or "")
+        )
+        website = entry.get("website") or entry.get("homepage_url") or entry.get("homepage") or entry.get("company_domain")
+        careers_url = entry.get("careers_url")
+        direct_ats_url = entry.get("direct_ats_url")
+        candidate = normalize_ats_url(str(website or direct_ats_url or ""), self.name)
+        if candidate:
+            direct_ats_url = candidate.source_url
+            company_domain = None
+        else:
+            company_domain = normalize_company_domain(website)
+        category_hints = entry.get("category_hints") or entry.get("tags") or []
+        category = entry.get("category")
+        if category:
+            category_hints = list(category_hints) + [category]
+        signal = CompanySignal(
+            provider=self.name,
+            evidence_url=evidence_url or str(entry.get("yc_url") or entry.get("evidence_url") or ""),
+            company_name=entry.get("company_name") or entry.get("name"),
+            company_domain=company_domain,
+            careers_url=careers_url,
+            direct_ats_url=direct_ats_url,
+            confidence=0.55,
+            category_hints=category_hints,
+            metadata={
+                "source_type": "import_file" if self.import_file and self.import_file.exists() else "public_extract",
+                "yc_url": entry.get("yc_url") or evidence_url,
+                "batch": entry.get("batch"),
+                "status": entry.get("status"),
+                "category": category,
+            },
+        )
+        normalized = normalize_company_signal(signal)
+        if not normalized.signal:
+            reason = normalized.rejection_reason or "unsupported_company_signal"
+            self.diagnostics["rejected_signal_reasons"][reason] = self.diagnostics["rejected_signal_reasons"].get(reason, 0) + 1
+            return None
+        for hint in normalized.signal.category_hints:
+            key = _category_key(hint)
+            if key:
+                self.diagnostics["category_counts"][key] = self.diagnostics["category_counts"].get(key, 0) + 1
+        return normalized.signal
+
+
+class VCPortfolioProvider:
+    name = "vc_portfolio"
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        targets: Optional[list[dict]] = None,
+        import_file: Optional[Path | str] = None,
+        max_companies_per_target: int = 50,
+        request_timeout_seconds: float = 5.0,
+        max_response_bytes: int = 500_000,
+        config_error: Optional[str] = None,
+    ):
+        self.enabled = enabled
+        self.targets = targets if targets is not None else [dict(target) for target in VC_DEFAULT_TARGETS]
+        self.import_file = Path(import_file) if import_file else None
+        self.max_companies_per_target = max(0, int(max_companies_per_target or 0))
+        self.request_timeout_seconds = max(0.1, float(request_timeout_seconds or 0))
+        self.max_response_bytes = max(1, int(max_response_bytes or 1))
+        self.config_error = config_error
+        self.diagnostics: dict = {
+            "status": "enabled" if enabled else "disabled",
+            "target_count": 0,
+            "signals_emitted": 0,
+            "rejected_signal_reasons": {},
+            "per_target": [],
+            "errors": [],
+        }
+
+    async def discover(self) -> DiscoveryProviderResult:
+        if not self.enabled:
+            self.diagnostics["reason"] = "vc_portfolio_discovery_disabled"
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if self.config_error:
+            self.diagnostics.update(
+                {
+                    "status": "error",
+                    "reason": self.config_error,
+                    "errors": [self.config_error],
+                }
+            )
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+
+        try:
+            targets = self._configured_targets()
+        except Exception as exc:
+            safe_error = _safe_provider_error(exc)
+            self.diagnostics.update(
+                {
+                    "status": "error",
+                    "reason": "invalid_import_file",
+                    "last_error": safe_error,
+                    "errors": [safe_error],
+                }
+            )
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        self.diagnostics["target_count"] = len(targets)
+        all_signals = []
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds, follow_redirects=True) as client:
+            for target in targets:
+                all_signals.extend(await self._discover_target(client, target))
+        self.diagnostics["signals_emitted"] = len(all_signals)
+        if self.diagnostics.get("errors") and not all_signals:
+            self.diagnostics["status"] = "error"
+        elif self.diagnostics.get("errors"):
+            self.diagnostics["status"] = "partial_error"
+        else:
+            self.diagnostics["status"] = "ok"
+        return DiscoveryProviderResult(company_signals=all_signals, provider_diagnostics={self.name: dict(self.diagnostics)})
+
+    def _configured_targets(self) -> list[dict]:
+        import_targets = _load_json_entries(self.import_file, "targets", "portfolios") if self.import_file and self.import_file.exists() else []
+        if import_targets:
+            return import_targets
+        return self.targets
+
+    async def _discover_target(self, client: httpx.AsyncClient, target: dict) -> list[CompanySignal]:
+        firm = str(target.get("firm") or target.get("name") or "unknown").strip() or "unknown"
+        portfolio_url = _normalized_http_url(str(target.get("portfolio_url") or target.get("url") or ""))
+        target_diag = {
+            "firm": firm,
+            "source_url": portfolio_url,
+            "rows_seen": 0,
+            "signals_emitted": 0,
+            "rejected_count": 0,
+            "cap_exhausted": False,
+            "errors": [],
+        }
+        try:
+            if isinstance(target.get("companies"), list):
+                entries = [entry for entry in target["companies"] if isinstance(entry, dict)]
+            else:
+                if not portfolio_url:
+                    raise ValueError("missing_portfolio_url")
+                html = await self._fetch_portfolio_page(client, portfolio_url)
+                entries = self._extract_entries_from_public_html(firm, portfolio_url, html)
+            if len(entries) > self.max_companies_per_target:
+                target_diag["cap_exhausted"] = True
+            signals = []
+            for entry in entries[: self.max_companies_per_target]:
+                target_diag["rows_seen"] += 1
+                signal = self._signal_from_entry(entry, firm, portfolio_url)
+                if signal:
+                    signals.append(signal)
+                    target_diag["signals_emitted"] += 1
+                else:
+                    target_diag["rejected_count"] += 1
+            self.diagnostics["per_target"].append(target_diag)
+            return signals
+        except Exception as exc:
+            safe_error = _safe_provider_error(exc)
+            target_diag["errors"].append(safe_error)
+            self.diagnostics["errors"].append(safe_error)
+            self.diagnostics["per_target"].append(target_diag)
+            return []
+
+    async def _fetch_portfolio_page(self, client: httpx.AsyncClient, url: str) -> str:
+        response = await client.get(url)
+        response.raise_for_status()
+        content = response.content
+        if len(content) > self.max_response_bytes:
+            raise ValueError("response_too_large")
+        return content.decode(response.encoding or "utf-8", errors="replace")
+
+    def _extract_entries_from_public_html(self, firm: str, portfolio_url: str, html: str) -> list[dict]:
+        parser = LinkTextParser()
+        try:
+            parser.feed(html or "")
+        except Exception:
+            pass
+        portfolio_host = urlparse(portfolio_url).netloc
+        entries = []
+        seen_domains = set()
+        for link in parser.links:
+            href = _normalized_http_url(urljoin(portfolio_url, link["href"]))
+            if not href:
+                continue
+            parsed = urlparse(href)
+            if parsed.netloc == portfolio_host:
+                continue
+            candidate = normalize_ats_url(href, self.name)
+            if candidate:
+                entries.append({"name": link.get("text"), "direct_ats_url": candidate.source_url})
+                if len(entries) >= self.max_companies_per_target:
+                    break
+                continue
+            domain = normalize_company_domain(href)
+            if not domain or domain in seen_domains:
+                continue
+            seen_domains.add(domain)
+            entries.append({"name": link.get("text"), "homepage_url": href})
+            if len(entries) >= self.max_companies_per_target:
+                break
+        return entries
+
+    def _signal_from_entry(self, entry: dict, firm: str, portfolio_url: Optional[str]) -> Optional[CompanySignal]:
+        homepage = entry.get("homepage_url") or entry.get("website") or entry.get("company_domain") or entry.get("url")
+        direct_ats_url = entry.get("direct_ats_url")
+        candidate = normalize_ats_url(str(homepage or direct_ats_url or ""), self.name)
+        if candidate:
+            company_domain = None
+            direct_ats_url = candidate.source_url
+        else:
+            company_domain = normalize_company_domain(homepage)
+        signal = CompanySignal(
+            provider=self.name,
+            evidence_url=portfolio_url or str(entry.get("evidence_url") or homepage or ""),
+            company_name=entry.get("company_name") or entry.get("name"),
+            company_domain=company_domain,
+            direct_ats_url=direct_ats_url,
+            confidence=0.5,
+            category_hints=entry.get("category_hints") or [],
+            metadata={
+                "source_type": "import_file" if self.import_file and self.import_file.exists() else "public_extract",
+                "vc_firm": firm,
+                "portfolio_url": portfolio_url,
+                "homepage_url": homepage,
+            },
+        )
+        normalized = normalize_company_signal(signal)
+        if not normalized.signal:
+            reason = normalized.rejection_reason or "unsupported_company_signal"
+            self.diagnostics["rejected_signal_reasons"][reason] = self.diagnostics["rejected_signal_reasons"].get(reason, 0) + 1
+            return None
+        return normalized.signal
+
+
 def default_discovery_providers(seed_file: Path = DEFAULT_SEED_FILE) -> list[DiscoveryProvider]:
     providers: list[DiscoveryProvider] = [
         HNWhoIsHiringProvider(),
@@ -658,6 +1293,56 @@ def default_discovery_providers(seed_file: Path = DEFAULT_SEED_FILE) -> list[Dis
                 auto_extract_enabled=settings.wellfound_auto_extract_enabled,
                 max_pages_per_run=settings.wellfound_max_pages_per_run,
                 request_delay_seconds=settings.wellfound_request_delay_seconds,
+            )
+        )
+    if settings.common_crawl_discovery_enabled:
+        providers.append(
+            CommonCrawlATSProvider(
+                enabled=settings.common_crawl_discovery_enabled,
+                crawl_ids=settings.common_crawl_crawl_ids,
+                max_crawls=settings.common_crawl_max_crawls,
+                max_records_per_pattern=settings.common_crawl_max_records_per_pattern,
+                total_record_cap=settings.common_crawl_total_record_cap,
+                request_timeout_seconds=settings.common_crawl_request_timeout_seconds,
+                request_delay_seconds=settings.common_crawl_request_delay_seconds,
+                max_response_bytes=settings.common_crawl_max_response_bytes,
+            )
+        )
+    if settings.yc_company_discovery_enabled:
+        providers.append(
+            YCCompanyDirectoryProvider(
+                enabled=settings.yc_company_discovery_enabled,
+                categories=settings.yc_company_categories,
+                import_file=settings.yc_company_import_file,
+                max_companies_per_category=settings.yc_company_max_companies_per_category,
+                max_total_companies=settings.yc_company_max_total_companies,
+                request_timeout_seconds=settings.yc_company_request_timeout_seconds,
+                max_response_bytes=settings.yc_company_max_response_bytes,
+            )
+        )
+    if settings.vc_portfolio_discovery_enabled:
+        targets = None
+        config_error = None
+        if settings.vc_portfolio_targets_json:
+            try:
+                loaded_targets = json.loads(settings.vc_portfolio_targets_json)
+                if isinstance(loaded_targets, list):
+                    targets = [target for target in loaded_targets if isinstance(target, dict)]
+                else:
+                    targets = []
+                    config_error = "invalid_vc_portfolio_targets_json"
+            except json.JSONDecodeError:
+                targets = []
+                config_error = "invalid_vc_portfolio_targets_json"
+        providers.append(
+            VCPortfolioProvider(
+                enabled=settings.vc_portfolio_discovery_enabled,
+                targets=targets,
+                import_file=settings.vc_portfolio_import_file,
+                max_companies_per_target=settings.vc_portfolio_max_companies_per_target,
+                request_timeout_seconds=settings.vc_portfolio_request_timeout_seconds,
+                max_response_bytes=settings.vc_portfolio_max_response_bytes,
+                config_error=config_error,
             )
         )
     return providers

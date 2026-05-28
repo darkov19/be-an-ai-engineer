@@ -29,6 +29,27 @@ class Settings(BaseSettings):
     wellfound_auto_extract_enabled: bool = False
     wellfound_max_pages_per_run: int = 5
     wellfound_request_delay_seconds: float = 5.0
+    common_crawl_discovery_enabled: bool = False
+    common_crawl_crawl_ids: str | None = None
+    common_crawl_max_crawls: int = 1
+    common_crawl_max_records_per_pattern: int = 25
+    common_crawl_total_record_cap: int = 100
+    common_crawl_request_timeout_seconds: float = 5.0
+    common_crawl_request_delay_seconds: float = 1.0
+    common_crawl_max_response_bytes: int = 500_000
+    yc_company_discovery_enabled: bool = False
+    yc_company_categories: str = "ai,developer-tools,infrastructure,data-engineering,databases,open-source,search"
+    yc_company_import_file: str | None = None
+    yc_company_max_companies_per_category: int = 25
+    yc_company_max_total_companies: int = 100
+    yc_company_request_timeout_seconds: float = 5.0
+    yc_company_max_response_bytes: int = 500_000
+    vc_portfolio_discovery_enabled: bool = False
+    vc_portfolio_import_file: str | None = None
+    vc_portfolio_targets_json: str | None = None
+    vc_portfolio_max_companies_per_target: int = 50
+    vc_portfolio_request_timeout_seconds: float = 5.0
+    vc_portfolio_max_response_bytes: int = 500_000
     
     # Configure model config to resolve the environment file relative to the project structure
     model_config = SettingsConfigDict(
