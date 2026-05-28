@@ -1,5 +1,5 @@
 # generated: 2026-05-26T19:38:26+05:30
-# last_updated: 2026-05-27T20:51:49+05:30
+# last_updated: 2026-05-27T21:50:22+05:30
 # project: be-an-ai-engineer
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-26T19:38:26+05:30
-last_updated: 2026-05-27T20:51:49+05:30
+last_updated: 2026-05-27T21:50:22+05:30
 project: be-an-ai-engineer
 project_key: NOKEY
 tracking_system: file-system
@@ -48,7 +48,7 @@ development_status:
   1-3-candidate-profile-management-and-freshness-monitor: done
   epic-1-retrospective: done
 
-  epic-2: in-progress
+  epic-2: done
   2-1-multi-source-ingest-parsers-and-database-schema: done
   2-2-fastapi-background-task-service-and-sse-log-stream: done
   2-3-live-log-ingest-dashboard-with-drag-drop-csv-fallback: done
@@ -58,7 +58,7 @@ development_status:
 
   epic-3: in-progress
   3-1-company-signals-and-canonical-source-resolver: done
-  3-2-google-and-wellfound-direct-hiring-signal-providers: backlog
+  3-2-google-and-wellfound-direct-hiring-signal-providers: done
   3-3-common-crawl-yc-and-vc-scale-discovery-providers: backlog
   3-4-long-tail-signals-and-provider-yield-reporting: backlog
   epic-3-retrospective: optional

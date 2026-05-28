@@ -10,6 +10,25 @@ class Settings(BaseSettings):
     alert_recipient_email: str = "onboarding@resend.dev"
     hermes_host: str = "127.0.0.1"
     hermes_port: int = 3000
+    vertex_search_enabled: bool = False
+    vertex_search_prod_mode: bool = False
+    vertex_search_api_key: str | None = None
+    vertex_search_project_id: str | None = None
+    vertex_search_location: str = "global"
+    vertex_search_engine_id: str | None = None
+    vertex_search_serving_config_id: str = "default_search"
+    vertex_search_quota_state_file: str | None = None
+    vertex_search_test_monthly_cap: int = 100
+    vertex_search_test_daily_cap: int = 10
+    vertex_search_test_max_queries_per_run: int = 3
+    vertex_search_prod_monthly_cap: int = 8000
+    vertex_search_prod_daily_cap: int = 300
+    vertex_search_prod_max_queries_per_run: int = 100
+    wellfound_discovery_enabled: bool = False
+    wellfound_import_file: str | None = None
+    wellfound_auto_extract_enabled: bool = False
+    wellfound_max_pages_per_run: int = 5
+    wellfound_request_delay_seconds: float = 5.0
     
     # Configure model config to resolve the environment file relative to the project structure
     model_config = SettingsConfigDict(

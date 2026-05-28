@@ -296,8 +296,21 @@ async def list_company_signals(request: Request):
                 """
             )
             rows = await cur.fetchall()
+            await cur.execute(
+                """
+                SELECT metadata
+                FROM company_discovery_runs
+                ORDER BY run_timestamp DESC
+                LIMIT 1
+                """
+            )
+            run_row = await cur.fetchone()
+
+    latest_run_metadata = run_row[0] if run_row and isinstance(run_row[0], dict) else {}
 
     return {
+        "provider_diagnostics": latest_run_metadata.get("provider_diagnostics", {}),
+        "provider_errors": latest_run_metadata.get("provider_errors", {}),
         "company_signals": [
             {
                 "provider": row[0],

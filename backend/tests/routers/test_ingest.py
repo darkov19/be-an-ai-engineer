@@ -377,6 +377,9 @@ class MockSourceListPool:
 
 
 class MockCompanySignalCursor:
+    def __init__(self):
+        self.execute_count = 0
+
     async def __aenter__(self):
         return self
 
@@ -384,6 +387,7 @@ class MockCompanySignalCursor:
         pass
 
     async def execute(self, query, vars=None):
+        self.execute_count += 1
         self.query = query
         self.vars = vars
 
@@ -404,6 +408,16 @@ class MockCompanySignalCursor:
                 None,
             )
         ]
+
+    async def fetchone(self):
+        return (
+            {
+                "provider_diagnostics": {
+                    "vertex_ai_search": {"status": "disabled", "reason": "missing_credentials"}
+                },
+                "provider_errors": {"vertex_ai_search": "quota_exhausted"},
+            },
+        )
 
 
 class MockCompanySignalConnection:
@@ -446,6 +460,8 @@ async def test_get_company_signals_lists_recent_diagnostics(app, client):
     assert data["company_signals"][0]["provider"] == "unit"
     assert data["company_signals"][0]["resolved_ats"] == "greenhouse"
     assert data["company_signals"][0]["metadata"]["source_urls"] == ["https://boards.greenhouse.io/acme"]
+    assert data["provider_diagnostics"]["vertex_ai_search"]["reason"] == "missing_credentials"
+    assert data["provider_errors"]["vertex_ai_search"] == "quota_exhausted"
 
 @pytest.mark.asyncio
 async def test_ingest_csv_success(app, client):

@@ -36,6 +36,9 @@ npm-debug.log*
 yarn-debug.log*
 pnpm-debug.log*
 
+# Runtime quota state
+_bmad-output/implementation-artifacts/vertex-search-quota-state.json
+
 # Test caches
 .pytest_cache/
 .vitest/

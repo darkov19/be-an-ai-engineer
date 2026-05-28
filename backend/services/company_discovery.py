@@ -44,6 +44,7 @@ class CompanyDiscoveryRunResult:
     signals: list[CompanySignal] = field(default_factory=list)
     resolutions: list[CompanySignalResolution] = field(default_factory=list)
     provider_errors: dict[str, str] = field(default_factory=dict)
+    provider_diagnostics: dict[str, dict] = field(default_factory=dict)
 
 
 def _normalized_http_url(raw_url: str) -> Optional[str]:
@@ -174,6 +175,8 @@ def company_signal_metrics(result: CompanyDiscoveryRunResult) -> dict:
         "error_count": status_counts.get("error", 0) + len(result.provider_errors),
         "counts_by_provider": dict(provider_counts),
         "rejection_reasons": dict(rejection_reasons),
+        "provider_errors": dict(result.provider_errors),
+        "provider_diagnostics": dict(result.provider_diagnostics),
     }
 
 
@@ -184,7 +187,7 @@ async def persist_company_discovery_results(
     error_message: Optional[str],
 ) -> None:
     metrics = company_signal_metrics(result)
-    status = "success" if result.signals or result.provider_errors else "failure"
+    status = "success" if result.signals or result.provider_errors or result.provider_diagnostics else "failure"
     async with pool.connection() as conn:
         async with conn.transaction():
             async with conn.cursor() as cur:
@@ -205,7 +208,12 @@ async def persist_company_discovery_results(
                         metrics["rejected_count"],
                         metrics["error_count"],
                         json.dumps(metrics["rejection_reasons"]),
-                        json.dumps({"provider_errors": result.provider_errors}),
+                        json.dumps(
+                            {
+                                "provider_errors": result.provider_errors,
+                                "provider_diagnostics": result.provider_diagnostics,
+                            }
+                        ),
                         error_message,
                         execution_time_seconds,
                     ),

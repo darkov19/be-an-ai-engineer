@@ -1,7 +1,9 @@
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from backend.services.source_discovery import (
@@ -11,6 +13,8 @@ from backend.services.source_discovery import (
     OptionalSeedProvider,
     SourceCandidate,
     ValidationResult,
+    VertexAISearchSignalProvider,
+    WellfoundSignalProvider,
     default_discovery_providers,
     discover_sources,
     discover_from_hn,
@@ -22,6 +26,7 @@ from backend.services.source_discovery import (
     normalize_ats_url,
     persist_discovery_result,
     validate_candidate_source,
+    _safe_provider_error,
 )
 from backend.services.company_discovery import (
     CompanyDiscoveryRunResult,
@@ -30,6 +35,18 @@ from backend.services.company_discovery import (
     normalize_company_signal,
     persist_company_discovery_results,
 )
+
+
+BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.fixture(autouse=True)
+def disable_env_configured_optional_providers():
+    with (
+        patch("backend.services.source_discovery.settings.vertex_search_enabled", False),
+        patch("backend.services.source_discovery.settings.wellfound_discovery_enabled", False),
+    ):
+        yield
 
 
 def read_discovery_report(report_dir: Path) -> dict:
@@ -52,6 +69,12 @@ def test_normalize_ats_url_supported_patterns():
         ("https://demo.jobs.personio.com/job/1", ("personio", "demo")),
         ("https://apply.workable.com/canonical-ai/", ("workable", "canonical-ai")),
         ("https://apply.workable.com/api/v1/widget/accounts/spacelift", ("workable", "spacelift")),
+        ("https://boards.greenhouse.io/embed/job_board/js?for=mongodb", ("greenhouse", "mongodb")),
+        (
+            "https://www.fullstory.com/careers/jobs/110896c1-25d8-4c96-82b4-8f77b1d31bdb?ashby_jid=110896c1-25d8-4c96-82b4-8f77b1d31bdb",
+            ("ashby", "fullstory"),
+        ),
+        ("https://careers.tether.io/o/backend-engineer-wallets-100-remote", ("recruitee", "tether")),
     ]
 
     for url, expected in cases:
@@ -65,10 +88,27 @@ def test_normalize_ats_url_rejects_malformed_and_unsupported():
     assert normalize_ats_url("ftp://boards.greenhouse.io/stripe", "unit") is None
     assert normalize_ats_url("not a url", "unit") is None
     assert normalize_ats_url("https://example.com/careers", "unit") is None
+    assert normalize_ats_url("https://api.ashbyhq.com/posting-api/job-board/Railway\\", "unit") is None
+    assert normalize_ats_url("https://job-boards.greenhouse.io/fal\\", "unit") is None
+    assert normalize_ats_url("https://boards-api.greenhouse.io/v1/boards/${ghSlug}/departments/`)", "unit") is None
+    assert normalize_ats_url("https://boards.greenhouse.io/embed/job_board/js", "unit") is None
+    assert normalize_ats_url("https://careers.tether.io/openings", "unit") is None
+
+
+def test_safe_provider_error_redacts_credentials_with_whitespace_boundaries():
+    error = RuntimeError("failed key=secret api_key=another token=third cx=fourth done")
+
+    redacted = _safe_provider_error(error)
+
+    assert "secret" not in redacted
+    assert "another" not in redacted
+    assert "third" not in redacted
+    assert "fourth" not in redacted
+    assert "key=[redacted]" in redacted
 
 
 def test_company_discovery_migration_defines_signal_registry_shape():
-    migration = Path("backend/db/migrations/V006__add_company_discovery.sql").read_text(encoding="utf-8")
+    migration = (BACKEND_ROOT / "db" / "migrations" / "V006__add_company_discovery.sql").read_text(encoding="utf-8")
 
     assert "CREATE TABLE IF NOT EXISTS company_discovery_runs" in migration
     assert "CREATE TABLE IF NOT EXISTS company_signals" in migration
@@ -190,11 +230,681 @@ async def test_discover_from_seed_file_valid_missing_and_invalid(tmp_path):
 
 
 def test_default_discovery_providers_include_seed_as_optional_provider(tmp_path):
-    providers = default_discovery_providers(tmp_path / "missing-seeds.json")
+    with (
+        patch("backend.services.source_discovery.settings.vertex_search_enabled", False),
+        patch("backend.services.source_discovery.settings.wellfound_discovery_enabled", False),
+    ):
+        providers = default_discovery_providers(tmp_path / "missing-seeds.json")
 
     assert [provider.name for provider in providers] == ["hn_who_is_hiring", "seed_file"]
     assert isinstance(providers[0], HNWhoIsHiringProvider)
     assert isinstance(providers[1], OptionalSeedProvider)
+
+
+@pytest.mark.asyncio
+async def test_vertex_provider_skips_when_disabled_or_credentials_missing(tmp_path):
+    disabled = VertexAISearchSignalProvider(
+        enabled=False,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        quota_state_file=tmp_path / "quota.json",
+    )
+    missing = VertexAISearchSignalProvider(enabled=True, quota_state_file=tmp_path / "missing-quota.json")
+
+    disabled_result = await disabled.discover()
+    missing_result = await missing.discover()
+
+    assert disabled_result.company_signals == []
+    assert disabled_result.provider_diagnostics["vertex_ai_search"]["status"] == "disabled"
+    assert missing_result.provider_diagnostics["vertex_ai_search"]["reason"] == "missing_credentials"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_provider_uses_search_lite_and_maps_results(mock_post, tmp_path):
+    response = MagicMock()
+    response.json.return_value = {
+        "results": [
+            {
+                "document": {
+                    "id": "1",
+                    "derivedStructData": {
+                        "link": "https://jobs.lever.co/acme",
+                        "title": "Acme AI Engineer",
+                        "snippet": "Python FastAPI",
+                    },
+                }
+            },
+            {
+                "document": {
+                    "id": "2",
+                    "derivedStructData": {
+                        "link": "https://example.com/careers",
+                        "title": "Example careers",
+                        "snippet": "LLM backend roles",
+                    },
+                }
+            },
+            {
+                "document": {
+                    "id": "3",
+                    "derivedStructData": {
+                        "link": "https://example.org/about",
+                        "title": "Example Org",
+                        "snippet": "ML platform team",
+                    },
+                }
+            },
+        ]
+    }
+    response.raise_for_status.return_value = None
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["site:jobs.lever.co AI"],
+    )
+
+    result = await provider.discover()
+
+    assert mock_post.await_args.args == (
+        "https://discoveryengine.googleapis.com/v1/projects/project/locations/global/collections/default_collection/engines/engine/servingConfigs/default_search:searchLite",
+    )
+    assert mock_post.await_args.kwargs["params"] == {"key": "key"}
+    assert mock_post.await_args.kwargs["json"]["query"] == "site:jobs.lever.co AI"
+    assert [signal.provider for signal in result.company_signals] == ["vertex_ai_search"] * 3
+    assert result.company_signals[0].direct_ats_url == "https://jobs.lever.co/acme"
+    assert result.company_signals[1].careers_url == "https://example.com/careers"
+    assert result.company_signals[2].company_domain == "example.org"
+    assert result.company_signals[0].metadata["queries"][0]["rank"] == 1
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_provider_deduplicates_and_preserves_query_evidence(mock_post, tmp_path):
+    response = MagicMock()
+    response.json.return_value = {
+        "results": [
+            {
+                "document": {
+                    "id": "1",
+                    "derivedStructData": {
+                        "link": "https://jobs.lever.co/acme",
+                        "title": "Acme AI Engineer",
+                        "snippet": "Python",
+                    },
+                }
+            }
+        ]
+    }
+    response.raise_for_status.return_value = None
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=2,
+        test_monthly_cap=2,
+        test_max_queries_per_run=2,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["first query", "second query"],
+    )
+
+    result = await provider.discover()
+
+    assert len(result.company_signals) == 1
+    assert [item["query"] for item in result.company_signals[0].metadata["queries"]] == [
+        "first query",
+        "second query",
+    ]
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_quota_state_survives_provider_instances(mock_post, tmp_path):
+    response = MagicMock()
+    response.json.return_value = {"results": []}
+    response.raise_for_status.return_value = None
+    mock_post.return_value = response
+    quota_file = tmp_path / "quota.json"
+
+    first = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=quota_file,
+        query_templates=["one"],
+        date_func=lambda: datetime(2026, 5, 27, tzinfo=timezone.utc),
+    )
+    second = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=quota_file,
+        query_templates=["two"],
+        date_func=lambda: datetime(2026, 5, 27, tzinfo=timezone.utc),
+    )
+    next_day = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=2,
+        test_max_queries_per_run=1,
+        quota_state_file=quota_file,
+        query_templates=["three"],
+        date_func=lambda: datetime(2026, 5, 28, tzinfo=timezone.utc),
+    )
+
+    await first.discover()
+    await second.discover()
+    await next_day.discover()
+
+    assert mock_post.await_count == 2
+    state = json.loads(quota_file.read_text(encoding="utf-8"))
+    assert state["date"] == "2026-05-28"
+    assert state["day_used"] == 1
+    assert state["month"] == "2026-05"
+    assert state["month_used"] == 2
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_provider_reports_api_errors_without_retrying(mock_post, tmp_path):
+    response = MagicMock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "quota",
+        request=httpx.Request("POST", "https://discoveryengine.googleapis.com/v1/test:searchLite"),
+        response=httpx.Response(403),
+    )
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=3,
+        test_monthly_cap=3,
+        test_max_queries_per_run=2,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one", "two"],
+    )
+
+    with pytest.raises(RuntimeError, match="quota_exhausted"):
+        await provider.discover()
+
+    assert mock_post.await_count == 1
+
+
+def test_vertex_provider_uses_test_caps_and_clamps_prod_monthly_cap(tmp_path):
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        prod_mode=False,
+        test_monthly_cap=100,
+        test_daily_cap=10,
+        test_max_queries_per_run=3,
+        quota_state_file=tmp_path / "quota.json",
+    )
+    prod_provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        prod_mode=True,
+        prod_monthly_cap=10_000,
+        prod_daily_cap=300,
+        prod_max_queries_per_run=100,
+        quota_state_file=tmp_path / "prod-quota.json",
+    )
+
+    assert provider.monthly_cap == 100
+    assert provider.daily_cap == 10
+    assert provider.max_queries_per_run == 3
+    assert prod_provider.monthly_cap == 8000
+    assert prod_provider.daily_cap == 300
+    assert prod_provider.max_queries_per_run == 100
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_quota_exhaustion_reports_diagnostics_without_signals(mock_post, tmp_path):
+    quota_file = tmp_path / "quota.json"
+    quota_file.write_text(
+        json.dumps({"date": "2026-05-27", "day_used": 1, "month": "2026-05", "month_used": 1}),
+        encoding="utf-8",
+    )
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=quota_file,
+        query_templates=["one"],
+        date_func=lambda: datetime(2026, 5, 27, tzinfo=timezone.utc),
+    )
+
+    result = await provider.discover()
+
+    assert mock_post.await_count == 0
+    assert result.company_signals == []
+    assert result.provider_diagnostics["vertex_ai_search"]["status"] == "quota_exhausted"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_respects_max_queries_per_run(mock_post, tmp_path):
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"results": []}
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=10,
+        test_monthly_cap=10,
+        test_max_queries_per_run=2,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one", "two", "three"],
+    )
+
+    result = await provider.discover()
+
+    assert mock_post.await_count == 2
+    assert result.provider_diagnostics["vertex_ai_search"]["queries_used"] == 2
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_malformed_payload_reports_provider_error(mock_post, tmp_path):
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.side_effect = ValueError("bad json with key=secret")
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="secret",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one"],
+    )
+
+    with pytest.raises(RuntimeError, match="api_unavailable"):
+        await provider.discover()
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_rejects_non_object_or_non_list_results_payload(mock_post, tmp_path):
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = []
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="secret",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one"],
+    )
+
+    with pytest.raises(RuntimeError, match="api_unavailable"):
+        await provider.discover()
+
+    assert provider.diagnostics["reason"] == "malformed_response"
+
+    response.json.return_value = {"results": {"bad": "shape"}}
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="secret",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=2,
+        test_monthly_cap=2,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "second-quota.json",
+        query_templates=["one"],
+    )
+
+    with pytest.raises(RuntimeError, match="api_unavailable"):
+        await provider.discover()
+
+    assert provider.diagnostics["reason"] == "malformed_response"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_transport_errors_are_isolated_and_sanitized(mock_post, tmp_path):
+    mock_post.side_effect = httpx.ConnectError(
+        "boom key=secret",
+        request=httpx.Request("POST", "https://discoveryengine.googleapis.com/v1/test:searchLite"),
+    )
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="secret",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one"],
+    )
+
+    with pytest.raises(RuntimeError, match="api_unavailable"):
+        await provider.discover()
+
+    assert provider.diagnostics["status"] == "api_unavailable"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+async def test_vertex_skips_noise_hosts_when_mapping_generic_results(mock_post, tmp_path):
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {
+        "results": [
+            {"document": {"derivedStructData": {"link": "https://www.linkedin.com/company/acme"}}},
+            {"document": {"derivedStructData": {"link": "https://forms.gle/example"}}},
+            {"document": {"derivedStructData": {"link": "https://example.com/about"}}},
+        ]
+    }
+    mock_post.return_value = response
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one"],
+    )
+
+    result = await provider.discover()
+
+    assert [signal.company_domain for signal in result.company_signals] == ["example.com"]
+
+
+@pytest.mark.asyncio
+async def test_vertex_invalid_quota_state_reports_diagnostics(tmp_path):
+    quota_file = tmp_path / "quota.json"
+    quota_file.write_text("[]", encoding="utf-8")
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=quota_file,
+        query_templates=["one"],
+    )
+
+    result = await provider.discover()
+
+    assert result.company_signals == []
+    assert result.provider_diagnostics["vertex_ai_search"]["status"] == "quota_state_unavailable"
+    assert result.provider_diagnostics["vertex_ai_search"]["reason"] == "invalid_quota_state"
+
+
+@pytest.mark.asyncio
+async def test_vertex_quota_directory_errors_report_diagnostics(tmp_path):
+    blocking_file = tmp_path / "not-a-directory"
+    blocking_file.write_text("x", encoding="utf-8")
+    provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="key",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=1,
+        test_monthly_cap=1,
+        test_max_queries_per_run=1,
+        quota_state_file=blocking_file / "quota.json",
+        query_templates=["one"],
+    )
+
+    result = await provider.discover()
+
+    assert result.company_signals == []
+    assert result.provider_diagnostics["vertex_ai_search"]["status"] == "quota_state_unavailable"
+    assert result.provider_diagnostics["vertex_ai_search"]["reason"] == "quota_state_io_error"
+
+
+@pytest.mark.asyncio
+async def test_wellfound_provider_skips_when_disabled(tmp_path):
+    import_file = tmp_path / "wellfound.json"
+    import_file.write_text(json.dumps([{"wellfound_url": "https://wellfound.com/company/acme"}]), encoding="utf-8")
+    provider = WellfoundSignalProvider(enabled=False, import_file=import_file)
+
+    result = await provider.discover()
+
+    assert result.company_signals == []
+
+
+@pytest.mark.asyncio
+async def test_wellfound_provider_parses_import_file_without_credentials(tmp_path):
+    import_file = tmp_path / "wellfound.json"
+    import_file.write_text(
+        json.dumps(
+            [
+                {
+                    "wellfound_url": "https://wellfound.com/company/acme",
+                    "company_name": "Acme",
+                    "homepage_url": "https://acme.example",
+                    "confidence": 0.7,
+                    "category_hints": ["ai", "backend"],
+                },
+                {"wellfound_url": "not-a-url", "company_name": "Broken"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    provider = WellfoundSignalProvider(enabled=True, import_file=import_file)
+
+    result = await provider.discover()
+
+    assert len(result.company_signals) == 2
+    assert result.company_signals[0].provider == "wellfound_signal"
+    assert result.company_signals[0].evidence_url == "https://wellfound.com/company/acme"
+    assert result.company_signals[0].company_domain == "acme.example"
+    assert result.company_signals[0].metadata["source_type"] == "import_file"
+    assert result.company_signals[1].evidence_url == "not-a-url"
+
+
+@pytest.mark.asyncio
+async def test_wellfound_auto_extract_is_constrained_and_sleeper_injected(tmp_path):
+    import_file = tmp_path / "wellfound.json"
+    import_file.write_text(
+        json.dumps(
+            [
+                {"wellfound_url": "https://wellfound.com/company/acme"},
+                {"wellfound_url": "https://wellfound.com/_jobs/123"},
+                {"wellfound_url": "https://wellfound.com/company/bravo?page=2"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    html = """
+      <html><head><title>Acme | Wellfound</title></head>
+      <body><a href="https://acme.example">Homepage</a><p>Job description must not be persisted.</p></body></html>
+    """
+    sleeps = []
+
+    async def sleeper(delay):
+        sleeps.append(delay)
+
+    provider = WellfoundSignalProvider(
+        enabled=True,
+        import_file=import_file,
+        auto_extract_enabled=True,
+        max_pages_per_run=2,
+        request_delay_seconds=5.0,
+        sleeper=sleeper,
+    )
+    provider._fetch_public_page = AsyncMock(return_value=html)
+
+    result = await provider.discover()
+
+    provider._fetch_public_page.assert_awaited_once()
+    assert sleeps == []
+    extracted = [signal for signal in result.company_signals if signal.metadata["source_type"] == "public_extract"]
+    assert len(extracted) == 1
+    assert extracted[0].company_domain == "acme.example"
+    assert "Job description" not in json.dumps(extracted[0].metadata)
+
+
+@pytest.mark.asyncio
+async def test_wellfound_auto_extract_enforces_delay_between_allowed_pages(tmp_path):
+    import_file = tmp_path / "wellfound.json"
+    import_file.write_text(
+        json.dumps(
+            [
+                {"wellfound_url": "https://wellfound.com/company/acme"},
+                {"wellfound_url": "https://wellfound.com/company/bravo"},
+            ]
+        ),
+        encoding="utf-8",
+    )
+    sleeps = []
+
+    async def sleeper(delay):
+        sleeps.append(delay)
+
+    provider = WellfoundSignalProvider(
+        enabled=True,
+        import_file=import_file,
+        auto_extract_enabled=True,
+        max_pages_per_run=2,
+        request_delay_seconds=5.0,
+        sleeper=sleeper,
+    )
+    provider._fetch_public_page = AsyncMock(return_value="<title>Acme | Wellfound</title><a href='https://acme.example'>Home</a>")
+
+    result = await provider.discover()
+
+    assert provider._fetch_public_page.await_count == 2
+    assert sleeps == [5.0]
+    assert len([signal for signal in result.company_signals if signal.metadata["source_type"] == "public_extract"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_wellfound_auto_extract_failure_preserves_import_signals(tmp_path):
+    import_file = tmp_path / "wellfound.json"
+    import_file.write_text(
+        json.dumps(
+            [
+                {
+                    "wellfound_url": "https://wellfound.com/company/acme",
+                    "company_name": "Acme",
+                    "homepage_url": "https://acme.example",
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    provider = WellfoundSignalProvider(enabled=True, import_file=import_file, auto_extract_enabled=True)
+    provider._fetch_public_page = AsyncMock(side_effect=httpx.TimeoutException("timeout"))
+
+    result = await provider.discover()
+
+    assert len(result.company_signals) == 1
+    assert result.company_signals[0].metadata["source_type"] == "import_file"
+    assert result.provider_diagnostics["wellfound_signal"]["status"] == "partial_error"
+
+
+@pytest.mark.asyncio
+async def test_wellfound_fetch_rejects_disallowed_redirect_and_oversized_body():
+    provider = WellfoundSignalProvider(enabled=True, auto_extract_enabled=True)
+
+    class FakeResponse:
+        def __init__(self, url, chunks, headers=None):
+            self.url = url
+            self.chunks = chunks
+            self.headers = headers or {}
+            self.encoding = "utf-8"
+
+        def raise_for_status(self):
+            return None
+
+        async def aiter_bytes(self):
+            for chunk in self.chunks:
+                yield chunk
+
+    class FakeStream:
+        def __init__(self, response):
+            self.response = response
+
+        async def __aenter__(self):
+            return self.response
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+    class FakeClient:
+        def __init__(self, response):
+            self.response = response
+
+        def stream(self, method, url):
+            return FakeStream(self.response)
+
+    redirected = FakeResponse("https://example.com/company/acme", [b"ok"])
+    with pytest.raises(ValueError, match="redirected_to_disallowed_url"):
+        await provider._fetch_public_page(FakeClient(redirected), "https://wellfound.com/company/acme")
+
+    oversized = FakeResponse("https://wellfound.com/company/acme", [b"x" * 500_001])
+    with pytest.raises(ValueError, match="response_too_large"):
+        await provider._fetch_public_page(FakeClient(oversized), "https://wellfound.com/company/acme")
+
+    malformed_length = FakeResponse("https://wellfound.com/company/acme", [b"ok"], {"content-length": "unknown"})
+    with pytest.raises(ValueError, match="invalid_content_length"):
+        await provider._fetch_public_page(FakeClient(malformed_length), "https://wellfound.com/company/acme")
+
+
+def test_wellfound_disallowed_public_urls_are_rejected():
+    provider = WellfoundSignalProvider(enabled=True, auto_extract_enabled=True)
+
+    assert provider.is_allowed_public_page("https://wellfound.com/company/acme")
+    assert not provider.is_allowed_public_page("https://wellfound.com/_jobs")
+    assert not provider.is_allowed_public_page("https://wellfound.com/_jobs/123")
+    assert not provider.is_allowed_public_page("https://wellfound.com/jobs")
+    assert not provider.is_allowed_public_page("https://wellfound.com/company/acme?jobId=123")
+    assert not provider.is_allowed_public_page("https://wellfound.com/company/acme?jobId=")
+    assert not provider.is_allowed_public_page("https://wellfound.com/login")
 
 
 @pytest.mark.asyncio
@@ -523,7 +1233,9 @@ async def test_persist_company_discovery_results_upserts_signals_and_validated_s
 @patch("backend.services.source_discovery.expand_careers_page_once", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.validate_candidate_source", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
 async def test_discover_sources_deduplicates_and_writes_report(
+    mock_persist_company,
     mock_persist,
     mock_validate,
     mock_expand,
@@ -550,6 +1262,89 @@ async def test_discover_sources_deduplicates_and_writes_report(
     assert report["active_source_count_after_run"] == 0
     assert report["source_freshness_counts"]["validated_within_current_run"] == 1
     assert report["company_signals"]["signal_count"] == 0
+    assert report["company_signals"]["provider_diagnostics"]["vertex_ai_search"]["status"] == "disabled"
+    assert report["company_signals"]["provider_diagnostics"]["wellfound_signal"]["status"] == "disabled"
+    mock_persist_company.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@patch("backend.services.source_discovery.expand_careers_page_once", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_filters_obvious_noise_from_unsupported_counts(
+    mock_persist,
+    mock_expand,
+    tmp_path,
+):
+    class GenericProvider:
+        name = "generic_test"
+
+        async def discover(self):
+            return DiscoveryProviderResult(
+                generic_urls=[
+                    ("https://www.linkedin.com/in/example", None, "generic_test"),
+                    ("https://forms.gle/example", None, "generic_test"),
+                    ("https://example.com/careers", None, "generic_test"),
+                ]
+            )
+
+    mock_expand.return_value = []
+
+    result = await discover_sources(MagicMock(), providers=[GenericProvider()], report_dir=tmp_path)
+
+    assert result.unsupported_url_count == 1
+    assert result.rejected_count == 1
+    assert result.validation_results[0].candidate.source_url == "https://example.com/careers"
+    report = read_discovery_report(tmp_path)
+    assert report["unsupported_url_count"] == 1
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.post")
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+async def test_discover_sources_preserves_vertex_failure_diagnostics(
+    mock_persist,
+    mock_persist_company,
+    mock_post,
+    tmp_path,
+):
+    class NoopProvider:
+        name = "noop"
+
+        async def discover(self):
+            return DiscoveryProviderResult()
+
+    response = MagicMock()
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "quota key=secret",
+        request=httpx.Request("POST", "https://discoveryengine.googleapis.com/v1/test:searchLite?key=secret"),
+        response=httpx.Response(403),
+    )
+    mock_post.return_value = response
+    vertex_provider = VertexAISearchSignalProvider(
+        enabled=True,
+        api_key="secret",
+        project_id="project",
+        engine_id="engine",
+        test_daily_cap=3,
+        test_monthly_cap=3,
+        test_max_queries_per_run=1,
+        quota_state_file=tmp_path / "quota.json",
+        query_templates=["one"],
+    )
+
+    result = await discover_sources(
+        MagicMock(),
+        providers=[NoopProvider(), vertex_provider],
+        report_dir=tmp_path,
+    )
+
+    diagnostics = result.company_signal_counts["provider_diagnostics"]["vertex_ai_search"]
+    assert diagnostics["status"] == "quota_exhausted"
+    assert diagnostics["queries_used"] == 1
+    assert diagnostics["last_error"] == "quota_exhausted"
+    assert "secret" not in json.dumps(result.company_signal_counts)
+    mock_persist_company.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -558,7 +1353,9 @@ async def test_discover_sources_deduplicates_and_writes_report(
 @patch("backend.services.source_discovery.expand_careers_page_once", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.validate_candidate_source", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.persist_discovery_result", new_callable=AsyncMock)
+@patch("backend.services.source_discovery.persist_company_discovery_results", new_callable=AsyncMock)
 async def test_discover_sources_expands_hn_generic_urls_with_hn_method(
+    mock_persist_company,
     mock_persist,
     mock_validate,
     mock_expand,
