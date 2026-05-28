@@ -45,6 +45,7 @@ class CompanyDiscoveryRunResult:
     resolutions: list[CompanySignalResolution] = field(default_factory=list)
     provider_errors: dict[str, str] = field(default_factory=dict)
     provider_diagnostics: dict[str, dict] = field(default_factory=dict)
+    provider_yield: dict = field(default_factory=dict)
 
 
 def _normalized_http_url(raw_url: str) -> Optional[str]:
@@ -212,7 +213,9 @@ async def persist_company_discovery_results(
                             {
                                 "provider_errors": result.provider_errors,
                                 "provider_diagnostics": result.provider_diagnostics,
-                            }
+                                "provider_yield": result.provider_yield,
+                            },
+                            default=str,
                         ),
                         error_message,
                         execution_time_seconds,

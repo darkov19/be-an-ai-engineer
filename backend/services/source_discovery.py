@@ -1,11 +1,12 @@
 import json
 import re
 import asyncio
+import base64
 import fcntl
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Awaitable, Callable, Optional, Protocol
@@ -74,6 +75,22 @@ DEFAULT_VERTEX_SEARCH_QUERIES = (
 DEFAULT_VERTEX_SEARCH_QUOTA_STATE_FILE = DEFAULT_REPORT_DIR / "vertex-search-quota-state.json"
 VERTEX_SEARCH_ENDPOINT = "https://discoveryengine.googleapis.com/v1/{serving_config}:searchLite"
 VERTEX_SEARCH_FREE_MONTHLY_CAP = 8000
+GITHUB_API_BASE = "https://api.github.com"
+GITHUB_REPOSITORY_SEARCH_ENDPOINT = f"{GITHUB_API_BASE}/search/repositories"
+GITHUB_API_VERSION = "2022-11-28"
+DEFAULT_GITHUB_ORG_TOPICS = (
+    "llm",
+    "rag",
+    "vector-database",
+    "mlops",
+    "agents",
+    "fastapi",
+    "developer-tools",
+    "data-platform",
+    "evals",
+)
+DEFAULT_REDDIT_COMMUNITIES = ("MachineLearningJobs", "PythonJobs", "forhire", "remotepython")
+DEFAULT_REDDIT_SEARCH_TERMS = ("hiring", "AI Engineer", "LLM", "RAG", "Python", "FastAPI", "backend", "remote")
 WELLFOUND_MAX_PAGE_BYTES = 500_000
 WELLFOUND_DISALLOWED_PATH_PREFIXES = (
     "/_jobs/",
@@ -122,6 +139,10 @@ NOISE_UNSUPPORTED_HOSTS = {
     "forms.gle",
     "docs.google.com",
     "blog.cloudflare.com",
+    "reddit.com",
+    "www.reddit.com",
+    "old.reddit.com",
+    "oauth.reddit.com",
 }
 CUSTOM_ATS_DOMAIN_MAPPINGS = {
     ("www.fullstory.com", "/careers/jobs"): ("ashby", "fullstory"),
@@ -166,6 +187,7 @@ class DiscoveryRunResult:
     source_freshness_counts: dict = field(default_factory=dict)
     validation_results: list[ValidationResult] = field(default_factory=list)
     company_signal_counts: dict = field(default_factory=dict)
+    provider_yield: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -186,7 +208,22 @@ class DiscoveryProvider(Protocol):
 
 def _safe_provider_error(exc: Exception) -> str:
     text = str(exc) or exc.__class__.__name__
-    return re.sub(r"((?:[?&]|\b)(?:key|api_key|token|access_token|cx)=)[^&\s]+", r"\1[redacted]", text, flags=re.IGNORECASE)
+    return re.sub(
+        r"((?:[?&]|\b)(?:key|api_key|token|access_token|client_secret|client_id|cx)=)[^&\s]+",
+        r"\1[redacted]",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def _split_config_list(value: str | list[str] | tuple[str, ...] | None, default: tuple[str, ...] = ()) -> list[str]:
+    if value is None:
+        return list(default)
+    if isinstance(value, str):
+        items = value.split(",")
+    else:
+        items = list(value)
+    return [str(item).strip() for item in items if str(item).strip()]
 
 
 def _path_matches_prefix(path: str, prefix: str) -> bool:
@@ -238,6 +275,31 @@ def _default_provider_diagnostics() -> dict[str, dict]:
             "status": "disabled",
             "reason": "vc_portfolio_discovery_disabled",
             "max_companies_per_target": settings.vc_portfolio_max_companies_per_target,
+        }
+    if not settings.github_org_discovery_enabled:
+        diagnostics["github_org_signal"] = {
+            "status": "disabled",
+            "reason": "github_org_discovery_disabled",
+            "max_search_queries": settings.github_org_max_search_queries,
+            "max_repos_per_query": settings.github_org_max_repos_per_query,
+        }
+    if not settings.reddit_hiring_discovery_enabled:
+        diagnostics["reddit_hiring_signal"] = {
+            "status": "disabled",
+            "reason": "reddit_hiring_discovery_disabled",
+            "max_posts_per_run": settings.reddit_hiring_max_posts_per_run,
+            "allow_unauthenticated": settings.reddit_hiring_allow_unauthenticated,
+        }
+    elif (
+        not settings.reddit_hiring_access_token
+        and (not settings.reddit_hiring_client_id or not settings.reddit_hiring_client_secret)
+        and not settings.reddit_hiring_allow_unauthenticated
+    ):
+        diagnostics["reddit_hiring_signal"] = {
+            "status": "disabled",
+            "reason": "missing_credentials",
+            "max_posts_per_run": settings.reddit_hiring_max_posts_per_run,
+            "allow_unauthenticated": settings.reddit_hiring_allow_unauthenticated,
         }
     return diagnostics
 
@@ -499,6 +561,624 @@ class VertexAISearchSignalProvider:
             confidence=0.3,
             metadata=metadata,
         )
+
+
+class GitHubOrgSignalProvider:
+    name = "github_org_signal"
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        token: Optional[str] = None,
+        topics: str | list[str] | tuple[str, ...] | None = None,
+        queries: str | list[str] | tuple[str, ...] | None = None,
+        max_search_queries: int = 6,
+        max_pages_per_query: int = 1,
+        max_repos_per_query: int = 10,
+        max_orgs_per_run: int = 25,
+        max_organization_metadata_fetches: int = 10,
+        max_readme_fetches_per_run: int = 10,
+        request_timeout_seconds: float = 5.0,
+        request_delay_seconds: float = 1.0,
+        max_response_bytes: int = 500_000,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        self.enabled = enabled
+        self.token = token
+        self.topics = _split_config_list(topics, DEFAULT_GITHUB_ORG_TOPICS)
+        self.queries = _split_config_list(queries, DEFAULT_GITHUB_ORG_TOPICS)
+        self.query_templates = [f"topic:{topic}" for topic in self.topics] + self.queries
+        self.max_search_queries = max(0, int(max_search_queries or 0))
+        self.max_pages_per_query = max(0, int(max_pages_per_query or 0))
+        self.max_repos_per_query = max(0, int(max_repos_per_query or 0))
+        self.max_orgs_per_run = max(0, int(max_orgs_per_run or 0))
+        self.max_organization_metadata_fetches = max(0, int(max_organization_metadata_fetches or 0))
+        self.max_readme_fetches_per_run = max(0, int(max_readme_fetches_per_run or 0))
+        self.request_timeout_seconds = max(0.1, float(request_timeout_seconds or 0.1))
+        self.request_delay_seconds = max(0.0, float(request_delay_seconds or 0))
+        self.max_response_bytes = max(1_000, int(max_response_bytes or 1_000))
+        self.sleeper = sleeper
+        self._seen_orgs: set[str] = set()
+        self.diagnostics: dict = {
+            "status": "enabled" if enabled else "disabled",
+            "query_count": 0,
+            "repository_count": 0,
+            "organization_count": 0,
+            "organization_metadata_fetch_count": 0,
+            "readme_fetch_count": 0,
+            "signals_emitted": 0,
+            "unsupported_url_count": 0,
+            "rejected_signal_reasons": {},
+            "error_count": 0,
+            "errors": [],
+            "incomplete_result_count": 0,
+            "cap_exhaustion": [],
+            "rate_limit_remaining": None,
+            "rate_limit_reset": None,
+            "max_search_queries": self.max_search_queries,
+            "max_repos_per_query": self.max_repos_per_query,
+        }
+
+    async def discover(self) -> DiscoveryProviderResult:
+        if not self.enabled:
+            self.diagnostics.update({"status": "disabled", "reason": "github_org_discovery_disabled"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if not self.query_templates:
+            self.diagnostics.update({"status": "config_error", "reason": "missing_queries"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if self.max_search_queries == 0 or self.max_pages_per_query == 0 or self.max_repos_per_query == 0:
+            self.diagnostics.update({"status": "cap_exhausted"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+
+        signals_by_url: dict[str, CompanySignal] = {}
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+            for query in self.query_templates[: self.max_search_queries]:
+                repos_for_query = 0
+                for page in range(1, self.max_pages_per_query + 1):
+                    if repos_for_query >= self.max_repos_per_query:
+                        self._record_cap("repositories_per_query")
+                        break
+                    try:
+                        response = await client.get(
+                            GITHUB_REPOSITORY_SEARCH_ENDPOINT,
+                            headers=self._headers(),
+                            params={
+                                "q": query,
+                                "sort": "stars",
+                                "order": "desc",
+                                "per_page": min(100, self.max_repos_per_query - repos_for_query),
+                                "page": page,
+                            },
+                        )
+                        self.diagnostics["query_count"] += 1
+                        self._record_rate_headers(response)
+                        self._enforce_response_size(response)
+                        response.raise_for_status()
+                        payload = response.json()
+                        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                            self._record_error("malformed_payload", RuntimeError("malformed_payload"))
+                            continue
+                        if payload.get("incomplete_results"):
+                            self.diagnostics["incomplete_result_count"] += 1
+                        for rank, repo in enumerate(payload.get("items", []), start=1):
+                            if repos_for_query >= self.max_repos_per_query:
+                                self._record_cap("repositories_per_query")
+                                break
+                            if not isinstance(repo, dict):
+                                self._record_rejection("malformed_repository")
+                                continue
+                            signal = await self._signal_from_repo(client, repo, query, rank)
+                            repos_for_query += 1
+                            self.diagnostics["repository_count"] += 1
+                            if self.diagnostics.get("status") == "rate_limited":
+                                break
+                            if not signal:
+                                continue
+                            existing = signals_by_url.get(signal.evidence_url)
+                            if existing:
+                                existing.metadata.setdefault("queries", []).append({"query": query, "rank": rank})
+                            else:
+                                signals_by_url[signal.evidence_url] = signal
+                    except httpx.HTTPStatusError as exc:
+                        status_code = exc.response.status_code if exc.response is not None else None
+                        status = "rate_limited" if status_code in {403, 429} else "api_error"
+                        self._record_error(status, exc)
+                        if status == "rate_limited":
+                            self.diagnostics["status"] = "rate_limited"
+                            break
+                    except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+                        self._record_error("api_error", exc)
+                    if self.request_delay_seconds:
+                        await self.sleeper(self.request_delay_seconds)
+                if self.diagnostics.get("status") == "rate_limited":
+                    break
+
+        if len(self.query_templates) > self.max_search_queries:
+            self._record_cap("search_queries")
+        if self.diagnostics.get("status") == "enabled":
+            self.diagnostics["status"] = "ok"
+        self.diagnostics["signals_emitted"] = len(signals_by_url)
+        for signal in signals_by_url.values():
+            signal.metadata["provider_diagnostics"] = dict(self.diagnostics)
+        return DiscoveryProviderResult(
+            company_signals=list(signals_by_url.values()),
+            provider_diagnostics={self.name: dict(self.diagnostics)},
+        )
+
+    def _headers(self) -> dict[str, str]:
+        headers = {
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": GITHUB_API_VERSION,
+        }
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers
+
+    def _record_rate_headers(self, response) -> None:
+        remaining = response.headers.get("x-ratelimit-remaining") if response.headers else None
+        reset = response.headers.get("x-ratelimit-reset") if response.headers else None
+        if remaining is not None:
+            self.diagnostics["rate_limit_remaining"] = remaining
+        if reset is not None:
+            self.diagnostics["rate_limit_reset"] = reset
+
+    def _enforce_response_size(self, response) -> None:
+        content = getattr(response, "content", b"") or b""
+        if len(content) > self.max_response_bytes:
+            raise RuntimeError("response_too_large")
+
+    def _record_cap(self, reason: str) -> None:
+        caps = self.diagnostics.setdefault("cap_exhaustion", [])
+        if reason not in caps:
+            caps.append(reason)
+
+    def _record_rejection(self, reason: str) -> None:
+        rejected = self.diagnostics.setdefault("rejected_signal_reasons", {})
+        rejected[reason] = rejected.get(reason, 0) + 1
+
+    def _record_error(self, status: str, exc: Exception) -> None:
+        if status == "rate_limited" or self.diagnostics.get("status") == "enabled":
+            self.diagnostics["status"] = status
+        else:
+            self.diagnostics["status"] = self.diagnostics.get("status", status)
+        self.diagnostics["error_count"] += 1
+        self.diagnostics.setdefault("errors", []).append(_safe_provider_error(exc))
+
+    async def _signal_from_repo(self, client: httpx.AsyncClient, repo: dict, query: str, rank: int) -> Optional[CompanySignal]:
+        owner = repo.get("owner") if isinstance(repo.get("owner"), dict) else {}
+        org_login = str(owner.get("login") or "").strip()
+        if not org_login:
+            self._record_rejection("missing_owner")
+            return None
+        if owner.get("type") != "Organization":
+            self._record_rejection("non_organization_owner")
+            return None
+        if org_login not in self._seen_orgs:
+            if len(self._seen_orgs) >= self.max_orgs_per_run:
+                self._record_cap("organizations_per_run")
+                return None
+            self._seen_orgs.add(org_login)
+            self.diagnostics["organization_count"] = len(self._seen_orgs)
+
+        org_metadata = await self._fetch_org_metadata(client, org_login)
+        if self.diagnostics.get("status") == "rate_limited":
+            return None
+        readme_urls, readme_html_url = await self._fetch_readme_urls(client, str(repo.get("full_name") or ""))
+        if self.diagnostics.get("status") == "rate_limited":
+            return None
+        locator_urls = [
+            repo.get("homepage"),
+            org_metadata.get("blog"),
+            org_metadata.get("website"),
+            *readme_urls,
+        ]
+        repo_topics = repo.get("topics") if isinstance(repo.get("topics"), list) else []
+        direct_ats_url = None
+        careers_url = None
+        company_domain = None
+        for raw_url in locator_urls:
+            normalized_url = _normalized_http_url(str(raw_url or ""))
+            if not normalized_url:
+                continue
+            candidate = normalize_ats_url(normalized_url, self.name)
+            if candidate and not direct_ats_url:
+                direct_ats_url = candidate.source_url
+                continue
+            parsed = urlparse(normalized_url)
+            if parsed.path.rstrip("/") in BOUNDED_COMPANY_PATHS and not careers_url:
+                careers_url = normalized_url
+            domain = normalize_company_domain(normalized_url)
+            if domain and domain not in {"github.com", "www.github.com"} and not company_domain:
+                company_domain = domain
+
+        signal = CompanySignal(
+            provider=self.name,
+            evidence_url=_normalized_http_url(str(repo.get("html_url") or "")) or f"https://github.com/{repo.get('full_name')}",
+            company_name=org_metadata.get("name") or org_login,
+            company_domain=company_domain,
+            careers_url=careers_url,
+            direct_ats_url=direct_ats_url,
+            confidence=0.45,
+            category_hints=[str(topic) for topic in repo_topics if isinstance(topic, str)],
+            metadata={
+                "source_type": "github_repository_search",
+                "query": query,
+                "rank": rank,
+                "repository_full_name": repo.get("full_name"),
+                "repository_url": repo.get("html_url"),
+                "repository_owner_url": owner.get("html_url"),
+                "repository_homepage": repo.get("homepage"),
+                "repository_topics": [str(topic) for topic in repo_topics if isinstance(topic, str)],
+                "repository_description": repo.get("description"),
+                "organization_login": org_login,
+                "organization_name": org_metadata.get("name"),
+                "organization_url": org_metadata.get("html_url") or owner.get("html_url"),
+                "readme_url": readme_html_url,
+                "readme_urls": readme_urls,
+                "queries": [{"query": query, "rank": rank}],
+                "hiring_proof": False,
+            },
+        )
+        normalized = normalize_company_signal(signal)
+        if not normalized.signal:
+            self._record_rejection(normalized.rejection_reason or "unsupported_company_signal")
+            return None
+        return normalized.signal
+
+    async def _fetch_org_metadata(self, client: httpx.AsyncClient, org_login: str) -> dict:
+        if self.diagnostics["organization_metadata_fetch_count"] >= self.max_organization_metadata_fetches:
+            self._record_cap("organization_metadata_fetches")
+            return {}
+        try:
+            response = await client.get(f"{GITHUB_API_BASE}/orgs/{org_login}", headers=self._headers())
+            self.diagnostics["organization_metadata_fetch_count"] += 1
+            self._record_rate_headers(response)
+            self._enforce_response_size(response)
+            response.raise_for_status()
+            payload = response.json()
+            return payload if isinstance(payload, dict) else {}
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            self._record_error("rate_limited" if status_code in {403, 429} else "partial_error", exc)
+            return {}
+        except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+            self._record_error("partial_error", exc)
+            return {}
+
+    async def _fetch_readme_urls(self, client: httpx.AsyncClient, full_name: str) -> tuple[list[str], Optional[str]]:
+        if not full_name or "/" not in full_name:
+            return [], None
+        if self.diagnostics["readme_fetch_count"] >= self.max_readme_fetches_per_run:
+            self._record_cap("readme_fetches")
+            return [], None
+        try:
+            response = await client.get(f"{GITHUB_API_BASE}/repos/{full_name}/readme", headers=self._headers())
+            self.diagnostics["readme_fetch_count"] += 1
+            self._record_rate_headers(response)
+            self._enforce_response_size(response)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return [], None
+            readme_text = ""
+            if isinstance(payload.get("content"), str):
+                try:
+                    readme_text = base64.b64decode(payload["content"], validate=False).decode("utf-8", errors="ignore")
+                except (ValueError, TypeError):
+                    readme_text = ""
+            urls = [_normalized_http_url(url) for url in extract_urls_from_html(readme_text)]
+            return [url for url in urls if url], _normalized_http_url(str(payload.get("html_url") or ""))
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code != 404:
+                self._record_error("rate_limited" if status_code in {403, 429} else "partial_error", exc)
+            return [], None
+        except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+            self._record_error("partial_error", exc)
+            return [], None
+
+
+class RedditHiringSignalProvider:
+    name = "reddit_hiring_signal"
+
+    def __init__(
+        self,
+        enabled: bool = False,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        access_token: Optional[str] = None,
+        user_agent: str = "be-an-ai-engineer-source-discovery/1.0",
+        allow_unauthenticated: bool = False,
+        subreddits: str | list[str] | tuple[str, ...] | None = None,
+        search_terms: str | list[str] | tuple[str, ...] | None = None,
+        max_pages_per_query: int = 1,
+        max_posts_per_query: int = 10,
+        max_posts_per_run: int = 50,
+        request_timeout_seconds: float = 5.0,
+        request_delay_seconds: float = 1.0,
+        max_response_bytes: int = 500_000,
+        default_confidence: float = 0.25,
+        strong_signal_confidence: float = 0.4,
+        sleeper: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        self.enabled = enabled
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.access_token = access_token
+        self.user_agent = user_agent or "be-an-ai-engineer-source-discovery/1.0"
+        self.allow_unauthenticated = allow_unauthenticated
+        self.subreddits = _split_config_list(subreddits, DEFAULT_REDDIT_COMMUNITIES)
+        self.search_terms = _split_config_list(search_terms, DEFAULT_REDDIT_SEARCH_TERMS)
+        self.max_pages_per_query = max(0, int(max_pages_per_query or 0))
+        self.max_posts_per_query = max(0, int(max_posts_per_query or 0))
+        self.max_posts_per_run = max(0, int(max_posts_per_run or 0))
+        self.request_timeout_seconds = max(0.1, float(request_timeout_seconds or 0.1))
+        self.request_delay_seconds = max(0.0, float(request_delay_seconds or 0))
+        self.max_response_bytes = max(1_000, int(max_response_bytes or 1_000))
+        self.default_confidence = float(default_confidence)
+        self.strong_signal_confidence = float(strong_signal_confidence)
+        self.sleeper = sleeper
+        self.diagnostics: dict = {
+            "status": "enabled" if enabled else "disabled",
+            "auth_mode": "oauth" if access_token or (client_id and client_secret) else "unauthenticated",
+            "subreddit_count": 0,
+            "query_count": 0,
+            "posts_scanned": 0,
+            "signals_emitted": 0,
+            "unsupported_url_count": 0,
+            "rejected_signal_reasons": {},
+            "error_count": 0,
+            "errors": [],
+            "cap_exhaustion": [],
+            "rate_limit_remaining": None,
+            "rate_limit_reset": None,
+        }
+
+    async def discover(self) -> DiscoveryProviderResult:
+        if not self.enabled:
+            self.diagnostics.update({"status": "disabled", "reason": "reddit_hiring_discovery_disabled"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if not self.access_token and not (self.client_id and self.client_secret) and not self.allow_unauthenticated:
+            self.diagnostics.update({"status": "disabled", "reason": "missing_credentials"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if not self.subreddits or not self.search_terms:
+            self.diagnostics.update({"status": "config_error", "reason": "missing_queries"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+        if self.max_pages_per_query == 0 or self.max_posts_per_query == 0 or self.max_posts_per_run == 0:
+            self.diagnostics.update({"status": "cap_exhausted"})
+            return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+
+        signals_by_url: dict[str, CompanySignal] = {}
+        async with httpx.AsyncClient(timeout=self.request_timeout_seconds) as client:
+            token = self.access_token
+            oauth_configured = bool(self.client_id and self.client_secret)
+            if not token and oauth_configured:
+                token = await self._fetch_oauth_token(client)
+                if not token:
+                    return DiscoveryProviderResult(provider_diagnostics={self.name: dict(self.diagnostics)})
+            base_url = "https://oauth.reddit.com" if token else "https://www.reddit.com"
+            headers = self._headers(token)
+            for subreddit in self.subreddits:
+                self.diagnostics["subreddit_count"] += 1
+                for search_term in self.search_terms:
+                    self.diagnostics["query_count"] += 1
+                    after = None
+                    count = 0
+                    posts_for_query = 0
+                    for page_index in range(self.max_pages_per_query):
+                        if self.diagnostics["posts_scanned"] >= self.max_posts_per_run:
+                            self._record_cap("posts_per_run")
+                            break
+                        if posts_for_query >= self.max_posts_per_query:
+                            self._record_cap("posts_per_query")
+                            break
+                        params = {
+                            "q": search_term,
+                            "restrict_sr": "1",
+                            "sort": "new",
+                            "t": "month",
+                            "type": "link",
+                            "limit": min(
+                                self.max_posts_per_query - posts_for_query,
+                                self.max_posts_per_run - self.diagnostics["posts_scanned"],
+                            ),
+                        }
+                        if after:
+                            params["after"] = after
+                            params["count"] = count
+                        try:
+                            suffix = "" if token else ".json"
+                            response = await client.get(
+                                f"{base_url}/r/{subreddit}/search{suffix}",
+                                headers=headers,
+                                params=params,
+                            )
+                            self._record_rate_headers(response)
+                            self._enforce_response_size(response)
+                            response.raise_for_status()
+                            payload = response.json()
+                            data = payload.get("data") if isinstance(payload, dict) else None
+                            children = data.get("children") if isinstance(data, dict) else None
+                            if not isinstance(children, list):
+                                self._record_error("malformed_payload", RuntimeError("malformed_payload"))
+                                break
+                            for child in children:
+                                if self.diagnostics["posts_scanned"] >= self.max_posts_per_run:
+                                    self._record_cap("posts_per_run")
+                                    break
+                                post = child.get("data") if isinstance(child, dict) else None
+                                if not isinstance(post, dict):
+                                    self._record_rejection("malformed_post")
+                                    continue
+                                self.diagnostics["posts_scanned"] += 1
+                                posts_for_query += 1
+                                signal = self._signal_from_post(post, subreddit, search_term)
+                                if signal:
+                                    signals_by_url.setdefault(signal.evidence_url, signal)
+                            after = data.get("after") if isinstance(data, dict) else None
+                            count += len(children)
+                            if after and page_index == self.max_pages_per_query - 1:
+                                self._record_cap("pages_per_query")
+                            if after and posts_for_query >= self.max_posts_per_query:
+                                self._record_cap("posts_per_query")
+                            if not after:
+                                break
+                        except httpx.HTTPStatusError as exc:
+                            status_code = exc.response.status_code if exc.response is not None else None
+                            self._record_error("rate_limited" if status_code == 429 else "api_error", exc)
+                            break
+                        except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+                            self._record_error("api_error", exc)
+                            break
+                        if self.request_delay_seconds:
+                            await self.sleeper(self.request_delay_seconds)
+                    if self.diagnostics["posts_scanned"] >= self.max_posts_per_run:
+                        break
+                if self.diagnostics["posts_scanned"] >= self.max_posts_per_run:
+                    break
+
+        if self.diagnostics.get("status") == "enabled":
+            self.diagnostics["status"] = "ok"
+        self.diagnostics["signals_emitted"] = len(signals_by_url)
+        for signal in signals_by_url.values():
+            signal.metadata["provider_diagnostics"] = dict(self.diagnostics)
+        return DiscoveryProviderResult(
+            company_signals=list(signals_by_url.values()),
+            provider_diagnostics={self.name: dict(self.diagnostics)},
+        )
+
+    async def _fetch_oauth_token(self, client: httpx.AsyncClient) -> Optional[str]:
+        try:
+            response = await client.post(
+                "https://www.reddit.com/api/v1/access_token",
+                auth=(self.client_id, self.client_secret),
+                data={"grant_type": "client_credentials"},
+                headers={"User-Agent": self.user_agent},
+            )
+            self._enforce_response_size(response)
+            response.raise_for_status()
+            payload = response.json()
+            token = payload.get("access_token") if isinstance(payload, dict) else None
+            if isinstance(token, str) and token:
+                return token
+        except (httpx.HTTPError, ValueError, RuntimeError) as exc:
+            self._record_error("auth_error", exc)
+        return None
+
+    def _headers(self, token: Optional[str] = None) -> dict[str, str]:
+        headers = {"User-Agent": self.user_agent}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        return headers
+
+    def _record_rate_headers(self, response) -> None:
+        remaining = response.headers.get("x-ratelimit-remaining") if response.headers else None
+        reset = response.headers.get("x-ratelimit-reset") if response.headers else None
+        if remaining is not None:
+            self.diagnostics["rate_limit_remaining"] = remaining
+        if reset is not None:
+            self.diagnostics["rate_limit_reset"] = reset
+
+    def _enforce_response_size(self, response) -> None:
+        content = getattr(response, "content", b"") or b""
+        if len(content) > self.max_response_bytes:
+            raise RuntimeError("response_too_large")
+
+    def _record_cap(self, reason: str) -> None:
+        caps = self.diagnostics.setdefault("cap_exhaustion", [])
+        if reason not in caps:
+            caps.append(reason)
+
+    def _record_error(self, status: str, exc: Exception) -> None:
+        if status in {"rate_limited", "auth_error"} or self.diagnostics.get("status") == "enabled":
+            self.diagnostics["status"] = status
+        else:
+            self.diagnostics["status"] = self.diagnostics.get("status", status)
+        self.diagnostics["error_count"] += 1
+        self.diagnostics.setdefault("errors", []).append(_safe_provider_error(exc))
+
+    def _record_rejection(self, reason: str) -> None:
+        rejected = self.diagnostics.setdefault("rejected_signal_reasons", {})
+        rejected[reason] = rejected.get(reason, 0) + 1
+
+    def _signal_from_post(self, post: dict, subreddit: str, search_term: str) -> Optional[CompanySignal]:
+        title = str(post.get("title") or "").strip()
+        selftext = str(post.get("selftext") or "")
+        if post.get("over_18"):
+            self._record_rejection("mature_or_explicit")
+            return None
+        if post.get("removed_by_category") or title.lower() in {"[deleted]", "[removed]"} or selftext.lower() in {"[deleted]", "[removed]"}:
+            self._record_rejection("deleted_or_removed")
+            return None
+        permalink = str(post.get("permalink") or "")
+        evidence_url = _normalized_http_url(permalink if permalink.startswith("http") else f"https://www.reddit.com{permalink}")
+        if not evidence_url:
+            self._record_rejection("invalid_permalink")
+            return None
+        raw_urls = []
+        if post.get("url"):
+            raw_urls.append(str(post.get("url")))
+        raw_urls.extend(extract_urls_from_html(f"{title}\n{selftext}"))
+        direct_ats_url = None
+        careers_url = None
+        company_domain = None
+        unsupported_count = 0
+        for raw_url in raw_urls:
+            normalized_url = _normalized_http_url(raw_url)
+            if not normalized_url:
+                continue
+            candidate = normalize_ats_url(normalized_url, self.name)
+            if candidate:
+                direct_ats_url = direct_ats_url or candidate.source_url
+                continue
+            parsed = urlparse(normalized_url)
+            if parsed.path.rstrip("/") in BOUNDED_COMPANY_PATHS:
+                careers_url = careers_url or normalized_url
+            domain = normalize_company_domain(normalized_url)
+            if domain and domain not in NOISE_UNSUPPORTED_HOSTS:
+                company_domain = company_domain or domain
+            else:
+                unsupported_count += 1
+        self.diagnostics["unsupported_url_count"] += unsupported_count
+        company_name = self._company_name_from_title(title)
+        confidence = self.strong_signal_confidence if careers_url or direct_ats_url else self.default_confidence
+        signal = CompanySignal(
+            provider=self.name,
+            evidence_url=evidence_url,
+            company_name=company_name,
+            company_domain=company_domain,
+            careers_url=careers_url,
+            direct_ats_url=direct_ats_url,
+            confidence=confidence,
+            metadata={
+                "source_type": "reddit_search",
+                "title": title,
+                "subreddit": subreddit,
+                "search_term": search_term,
+                "permalink": evidence_url,
+                "post_url": _normalized_http_url(str(post.get("url") or "")),
+                "created_utc": post.get("created_utc"),
+                "hiring_proof": False,
+            },
+        )
+        normalized = normalize_company_signal(signal)
+        if not normalized.signal:
+            self._record_rejection(normalized.rejection_reason or "unsupported_company_signal")
+            return None
+        return normalized.signal
+
+    def _company_name_from_title(self, title: str) -> Optional[str]:
+        patterns = (
+            r"^(?P<name>.+?)\s+(?:is\s+)?hiring\b",
+            r"^\[?(?P<name>[A-Za-z0-9 ._-]{2,80})\]?\s*[-|:]",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, title, flags=re.IGNORECASE)
+            if match:
+                name = match.group("name").strip(" []-|:")
+                if name:
+                    return name
+        return None
 
 
 class WellfoundSignalProvider:
@@ -1345,6 +2025,45 @@ def default_discovery_providers(seed_file: Path = DEFAULT_SEED_FILE) -> list[Dis
                 config_error=config_error,
             )
         )
+    if settings.github_org_discovery_enabled:
+        providers.append(
+            GitHubOrgSignalProvider(
+                enabled=settings.github_org_discovery_enabled,
+                token=settings.github_org_token,
+                topics=settings.github_org_topics,
+                queries=settings.github_org_queries,
+                max_search_queries=settings.github_org_max_search_queries,
+                max_pages_per_query=settings.github_org_max_pages_per_query,
+                max_repos_per_query=settings.github_org_max_repos_per_query,
+                max_orgs_per_run=settings.github_org_max_orgs_per_run,
+                max_organization_metadata_fetches=settings.github_org_max_organization_metadata_fetches,
+                max_readme_fetches_per_run=settings.github_org_max_readme_fetches_per_run,
+                request_timeout_seconds=settings.github_org_request_timeout_seconds,
+                request_delay_seconds=settings.github_org_request_delay_seconds,
+                max_response_bytes=settings.github_org_max_response_bytes,
+            )
+        )
+    if settings.reddit_hiring_discovery_enabled:
+        providers.append(
+            RedditHiringSignalProvider(
+                enabled=settings.reddit_hiring_discovery_enabled,
+                client_id=settings.reddit_hiring_client_id,
+                client_secret=settings.reddit_hiring_client_secret,
+                access_token=settings.reddit_hiring_access_token,
+                user_agent=settings.reddit_hiring_user_agent,
+                allow_unauthenticated=settings.reddit_hiring_allow_unauthenticated,
+                subreddits=settings.reddit_hiring_subreddits,
+                search_terms=settings.reddit_hiring_search_terms,
+                max_pages_per_query=settings.reddit_hiring_max_pages_per_query,
+                max_posts_per_query=settings.reddit_hiring_max_posts_per_query,
+                max_posts_per_run=settings.reddit_hiring_max_posts_per_run,
+                request_timeout_seconds=settings.reddit_hiring_request_timeout_seconds,
+                request_delay_seconds=settings.reddit_hiring_request_delay_seconds,
+                max_response_bytes=settings.reddit_hiring_max_response_bytes,
+                default_confidence=settings.reddit_hiring_default_confidence,
+                strong_signal_confidence=settings.reddit_hiring_strong_signal_confidence,
+            )
+        )
     return providers
 
 
@@ -1709,6 +2428,32 @@ async def get_active_source_count(pool) -> int:
         return 0
 
 
+async def get_active_source_keys(pool) -> set[tuple[str, str]]:
+    if pool.__class__.__module__.startswith("unittest.mock"):
+        return set()
+    if not hasattr(pool, "connection"):
+        return set()
+    try:
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT ats, slug
+                    FROM job_sources
+                    WHERE active = true
+                      AND validation_status = 'validated'
+                    """
+                )
+                rows = await cur.fetchall()
+                return {
+                    (str(row[0]), str(row[1]))
+                    for row in rows
+                    if row and row[0] and row[1]
+                }
+    except Exception:
+        return set()
+
+
 async def get_source_freshness_counts(pool, run_started_at: datetime, validated_within_current_run: int) -> dict:
     counts = {
         "never_validated": 0,
@@ -1720,6 +2465,7 @@ async def get_source_freshness_counts(pool, run_started_at: datetime, validated_
         return counts
     if not hasattr(pool, "connection"):
         return counts
+    stale_cutoff = run_started_at - timedelta(days=max(1, int(settings.discovery_stale_source_days or 1)))
     try:
         async with pool.connection() as conn:
             async with conn.cursor() as cur:
@@ -1735,7 +2481,7 @@ async def get_source_freshness_counts(pool, run_started_at: datetime, validated_
                         COUNT(*) FILTER (WHERE active = false OR validation_status = 'inactive')
                     FROM job_sources
                     """,
-                    (run_started_at,),
+                    (stale_cutoff,),
                 )
                 row = await cur.fetchone()
                 if row:
@@ -1745,6 +2491,249 @@ async def get_source_freshness_counts(pool, run_started_at: datetime, validated_
     except Exception:
         logger.warning("Failed to compute source freshness counts", exc_info=True)
     return counts
+
+
+def _empty_provider_yield(provider: str, diagnostics: Optional[dict] = None) -> dict:
+    diagnostics = diagnostics or {}
+    return {
+        "provider": provider,
+        "signals_emitted": 0,
+        "candidate_count": 0,
+        "resolved_count": 0,
+        "validated_active_source_count": 0,
+        "newly_activated_source_count": 0,
+        "active_source_growth_since_previous_run": 0,
+        "rejected_count": 0,
+        "error_count": 0,
+        "unsupported_url_count": 0,
+        "high_yield_company_or_source_count": 0,
+        "stale_source_count": 0,
+        "inactive_source_count": 0,
+        "repeated_rejection_count": 0,
+        "top_rejection_reasons": {},
+        "cap_quota_status": {
+            "status": diagnostics.get("status"),
+            "cap_exhaustion": diagnostics.get("cap_exhaustion", []),
+            "rate_limit_remaining": diagnostics.get("rate_limit_remaining"),
+            "rate_limit_reset": diagnostics.get("rate_limit_reset"),
+            "reason": diagnostics.get("reason"),
+        },
+        "last_seen_at": diagnostics.get("last_seen_at"),
+        "last_success_at": diagnostics.get("last_success_at"),
+    }
+
+
+async def compute_provider_yield(
+    pool,
+    provider_names: list[str],
+    validation_results: list[ValidationResult],
+    company_discovery_result: CompanyDiscoveryRunResult,
+    unsupported_counts_by_provider: Optional[dict[str, int]] = None,
+    active_source_count_before_run: int = 0,
+    active_source_count_after_run: int = 0,
+    active_source_keys_before_run: Optional[set[tuple[str, str]]] = None,
+) -> dict:
+    diagnostics = company_discovery_result.provider_diagnostics or {}
+    names = set(provider_names) | set(diagnostics.keys()) | set(company_discovery_result.provider_errors.keys())
+    names.update(result.candidate.discovery_method for result in validation_results if result.candidate.discovery_method)
+    names.update(signal.provider for signal in company_discovery_result.signals)
+    providers = {name: _empty_provider_yield(name, diagnostics.get(name)) for name in sorted(names)}
+    unsupported_counts_by_provider = unsupported_counts_by_provider or {}
+    active_source_keys_before_run = active_source_keys_before_run or set()
+    counted_validation_keys: set[tuple[str, str, str, str]] = set()
+
+    for provider, provider_diagnostics in diagnostics.items():
+        metrics = providers.setdefault(provider, _empty_provider_yield(provider, provider_diagnostics))
+        metrics["error_count"] += int(provider_diagnostics.get("error_count") or 0)
+        metrics["unsupported_url_count"] += int(
+            provider_diagnostics.get("unsupported_url_count")
+            or provider_diagnostics.get("unsupported_count")
+            or 0
+        )
+
+    def validation_key(result: ValidationResult) -> tuple[str, str, str, str]:
+        candidate = result.candidate
+        return (
+            candidate.discovery_method or "",
+            candidate.ats or "",
+            candidate.slug or "",
+            candidate.source_url or "",
+        )
+
+    def is_new_activation(result: ValidationResult) -> bool:
+        candidate = result.candidate
+        if result.validation_status != "validated" or not candidate.ats or not candidate.slug:
+            return False
+        return (candidate.ats, candidate.slug) not in active_source_keys_before_run
+
+    for provider, count in unsupported_counts_by_provider.items():
+        providers.setdefault(provider, _empty_provider_yield(provider, diagnostics.get(provider)))
+        providers[provider]["unsupported_url_count"] += count
+
+    for result in validation_results:
+        provider = result.candidate.discovery_method
+        if not provider:
+            continue
+        counted_validation_keys.add(validation_key(result))
+        metrics = providers.setdefault(provider, _empty_provider_yield(provider, diagnostics.get(provider)))
+        metrics["candidate_count"] += 1
+        if result.validation_status == "validated":
+            metrics["validated_active_source_count"] += 1
+            if is_new_activation(result):
+                metrics["newly_activated_source_count"] += 1
+            metrics["high_yield_company_or_source_count"] += 1
+        elif result.validation_status == "rejected":
+            metrics["rejected_count"] += 1
+            reason = result.rejection_reason or "unknown"
+            metrics["top_rejection_reasons"][reason] = metrics["top_rejection_reasons"].get(reason, 0) + 1
+        elif result.validation_status == "error":
+            metrics["error_count"] += 1
+
+    for signal in company_discovery_result.signals:
+        metrics = providers.setdefault(signal.provider, _empty_provider_yield(signal.provider, diagnostics.get(signal.provider)))
+        metrics["signals_emitted"] += 1
+
+    for resolution in company_discovery_result.resolutions:
+        provider = resolution.signal.provider
+        metrics = providers.setdefault(provider, _empty_provider_yield(provider, diagnostics.get(provider)))
+        if resolution.status == "resolved":
+            metrics["resolved_count"] += 1
+            if (
+                resolution.validation_result
+                and resolution.validation_result.validation_status == "validated"
+                and validation_key(resolution.validation_result) not in counted_validation_keys
+            ):
+                metrics["validated_active_source_count"] += 1
+                if is_new_activation(resolution.validation_result):
+                    metrics["newly_activated_source_count"] += 1
+                metrics["high_yield_company_or_source_count"] += 1
+        elif resolution.status == "rejected":
+            metrics["rejected_count"] += 1
+            reason = resolution.rejection_reason or "unknown"
+            metrics["top_rejection_reasons"][reason] = metrics["top_rejection_reasons"].get(reason, 0) + 1
+        elif resolution.status == "error":
+            metrics["error_count"] += 1
+
+    for provider in company_discovery_result.provider_errors:
+        providers.setdefault(provider, _empty_provider_yield(provider, diagnostics.get(provider)))
+        providers[provider]["error_count"] += 1
+
+    await _hydrate_provider_yield_from_registry(pool, providers)
+
+    active_growth = max(0, active_source_count_after_run - active_source_count_before_run)
+    total_newly_activated = sum(metrics["newly_activated_source_count"] for metrics in providers.values())
+    if active_growth and total_newly_activated:
+        allocations: list[tuple[str, int, float]] = []
+        assigned = 0
+        for provider, metrics in providers.items():
+            share = metrics["newly_activated_source_count"] / total_newly_activated
+            raw_growth = active_growth * share
+            base_growth = int(raw_growth)
+            allocations.append((provider, base_growth, raw_growth - base_growth))
+            assigned += base_growth
+        remaining = active_growth - assigned
+        for provider, _, _ in sorted(allocations, key=lambda item: item[2], reverse=True)[:remaining]:
+            providers[provider]["active_source_growth_since_previous_run"] += 1
+        for provider, base_growth, _ in allocations:
+            providers[provider]["active_source_growth_since_previous_run"] += base_growth
+
+    high_yield_min = max(1, int(settings.discovery_high_yield_min_validated_sources or 1))
+    high_yield_providers = [
+        provider
+        for provider, metrics in providers.items()
+        if metrics["validated_active_source_count"] >= high_yield_min
+    ]
+    low_yield_providers = [
+        provider
+        for provider, metrics in providers.items()
+        if metrics["signals_emitted"] or metrics["candidate_count"] or metrics["cap_quota_status"].get("status") == "ok"
+        if metrics["validated_active_source_count"] == 0
+    ]
+    return {
+        "providers": providers,
+        "summary": {
+            "provider_count": len(providers),
+            "high_yield_providers": sorted(high_yield_providers),
+            "low_yield_providers": sorted(low_yield_providers),
+            "stale_source_count": sum(metrics["stale_source_count"] for metrics in providers.values()),
+            "inactive_source_count": sum(metrics["inactive_source_count"] for metrics in providers.values()),
+            "repeated_rejection_count": sum(metrics["repeated_rejection_count"] for metrics in providers.values()),
+            "active_source_growth_since_previous_run": active_growth,
+        },
+    }
+
+
+async def _hydrate_provider_yield_from_registry(pool, providers: dict[str, dict]) -> None:
+    if pool.__class__.__module__.startswith("unittest.mock") or not hasattr(pool, "connection"):
+        return
+    stale_cutoff = datetime.now(timezone.utc) - timedelta(days=max(1, int(settings.discovery_stale_source_days or 1)))
+    repeated_cutoff = datetime.now(timezone.utc) - timedelta(
+        days=max(1, int(settings.discovery_repeated_rejection_window_days or 1))
+    )
+    repeated_threshold = max(1, int(settings.discovery_repeated_rejection_count or 1))
+    try:
+        async with pool.connection() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    SELECT discovery_method,
+                           COUNT(*) FILTER (WHERE active = true AND validation_status = 'validated'),
+                           COUNT(*) FILTER (
+                               WHERE active = true AND validation_status = 'validated'
+                                 AND last_validated_at IS NOT NULL
+                                 AND last_validated_at < %s
+                           ),
+                           COUNT(*) FILTER (WHERE active = false OR validation_status = 'inactive'),
+                           MAX(last_success_at)
+                    FROM job_sources
+                    GROUP BY discovery_method
+                    """,
+                    (stale_cutoff,),
+                )
+                for row in await cur.fetchall():
+                    provider = row[0]
+                    metrics = providers.setdefault(provider, _empty_provider_yield(provider))
+                    metrics["validated_active_source_count"] = max(metrics["validated_active_source_count"], int(row[1] or 0))
+                    metrics["stale_source_count"] = int(row[2] or 0)
+                    metrics["inactive_source_count"] = int(row[3] or 0)
+                    metrics["last_success_at"] = row[4]
+
+                await cur.execute(
+                    """
+                    SELECT discovery_method, rejection_reason, COUNT(*), MAX(created_at)
+                    FROM job_source_candidates
+                    WHERE validation_status = 'rejected'
+                      AND created_at >= %s
+                    GROUP BY discovery_method, rejection_reason
+                    HAVING COUNT(*) >= %s
+                    """,
+                    (repeated_cutoff, repeated_threshold),
+                )
+                for row in await cur.fetchall():
+                    provider = row[0]
+                    metrics = providers.setdefault(provider, _empty_provider_yield(provider))
+                    reason = row[1] or "unknown"
+                    count = int(row[2] or 0)
+                    metrics["repeated_rejection_count"] += count
+                    metrics["top_rejection_reasons"][reason] = max(
+                        metrics["top_rejection_reasons"].get(reason, 0),
+                        count,
+                    )
+                    metrics["last_seen_at"] = row[3]
+
+                await cur.execute(
+                    """
+                    SELECT provider, MAX(last_seen_at)
+                    FROM company_signals
+                    GROUP BY provider
+                    """
+                )
+                for row in await cur.fetchall():
+                    provider = row[0]
+                    metrics = providers.setdefault(provider, _empty_provider_yield(provider))
+                    metrics["last_seen_at"] = row[1]
+    except Exception:
+        logger.warning("Failed to compute provider yield registry diagnostics", exc_info=True)
 
 
 async def discover_sources(
@@ -1765,13 +2754,21 @@ async def discover_sources(
     company_candidate_results: list[ValidationResult] = []
     provider_errors: dict[str, str] = {}
     provider_diagnostics: dict[str, dict] = _default_provider_diagnostics() if providers is None else {}
+    unsupported_counts_by_provider: dict[str, int] = {}
 
     configured_providers = providers or default_discovery_providers(seed_file)
+    provider_names = [provider.name for provider in configured_providers]
+    active_source_count_before_run = await get_active_source_count(pool)
+    active_source_keys_before_run = await get_active_source_keys(pool)
     for provider in configured_providers:
         try:
             provider_result = await provider.discover()
             candidates.extend(provider_result.candidates)
             unsupported_urls.extend(provider_result.unsupported_urls)
+            if provider_result.unsupported_urls:
+                unsupported_counts_by_provider[provider.name] = (
+                    unsupported_counts_by_provider.get(provider.name, 0) + len(provider_result.unsupported_urls)
+                )
             generic_urls.extend(provider_result.generic_urls)
             company_signals.extend(provider_result.company_signals)
             if provider_result.provider_diagnostics:
@@ -1861,9 +2858,11 @@ async def discover_sources(
                 candidates.extend(expanded)
             elif _is_actionable_unsupported_url(url):
                 unsupported_urls.append(url)
+                unsupported_counts_by_provider[discovery_method] = unsupported_counts_by_provider.get(discovery_method, 0) + 1
         except Exception as exc:
             if _is_actionable_unsupported_url(url):
                 unsupported_urls.append(url)
+                unsupported_counts_by_provider[discovery_method] = unsupported_counts_by_provider.get(discovery_method, 0) + 1
             logger.warning("One-hop careers page expansion failed", url=url, error=str(exc))
 
     candidates = dedupe_candidates(candidates)
@@ -1937,6 +2936,24 @@ async def discover_sources(
     discovery_result.company_signal_counts = company_signal_metrics(company_discovery_result)
 
     await persist_discovery_result(pool, discovery_result, time.perf_counter() - start_time, "; ".join(errors) or None)
+    discovery_result.active_source_count_after_run = await get_active_source_count(pool)
+    discovery_result.source_freshness_counts = await get_source_freshness_counts(
+        pool,
+        run_started_at,
+        validated_count,
+    )
+    discovery_result.provider_yield = await compute_provider_yield(
+        pool,
+        provider_names,
+        all_results,
+        company_discovery_result,
+        unsupported_counts_by_provider,
+        active_source_count_before_run,
+        discovery_result.active_source_count_after_run,
+        active_source_keys_before_run,
+    )
+    company_discovery_result.provider_yield = discovery_result.provider_yield
+    discovery_result.company_signal_counts = company_signal_metrics(company_discovery_result)
     if company_signals or provider_errors or provider_diagnostics:
         try:
             await persist_company_discovery_results(
@@ -1947,12 +2964,6 @@ async def discover_sources(
             )
         except Exception as exc:
             logger.warning("Company discovery diagnostics persistence failed", error=str(exc))
-    discovery_result.active_source_count_after_run = await get_active_source_count(pool)
-    discovery_result.source_freshness_counts = await get_source_freshness_counts(
-        pool,
-        run_started_at,
-        validated_count,
-    )
     discovery_result.report_path = str(write_discovery_report(discovery_result, report_dir))
     return discovery_result
 
@@ -2055,6 +3066,29 @@ async def persist_discovery_result(
 def write_discovery_report(result: DiscoveryRunResult, report_dir: Path = DEFAULT_REPORT_DIR) -> Path:
     report_dir.mkdir(parents=True, exist_ok=True)
     report_path = report_dir / f"source-discovery-report-{datetime.now().date().isoformat()}.json"
+    company_signals = result.company_signal_counts or {
+        "signal_count": 0,
+        "resolved_count": 0,
+        "unresolved_count": 0,
+        "rejected_count": 0,
+        "error_count": 0,
+        "counts_by_provider": {},
+        "rejection_reasons": {},
+        "provider_errors": {},
+        "provider_diagnostics": {},
+    }
+    company_signals["provider_yield"] = result.provider_yield or {
+        "providers": {},
+        "summary": {
+            "provider_count": 0,
+            "high_yield_providers": [],
+            "low_yield_providers": [],
+            "stale_source_count": 0,
+            "inactive_source_count": 0,
+            "repeated_rejection_count": 0,
+            "active_source_growth_since_previous_run": 0,
+        },
+    }
     payload = {
         "candidate_count": result.candidate_count,
         "validated_count": result.validated_count,
@@ -2071,20 +3105,10 @@ def write_discovery_report(result: DiscoveryRunResult, report_dir: Path = DEFAUL
             "inactive": 0,
         },
         "coverage_gaps": result.coverage_gaps,
-        "company_signals": result.company_signal_counts or {
-            "signal_count": 0,
-            "resolved_count": 0,
-            "unresolved_count": 0,
-            "rejected_count": 0,
-            "error_count": 0,
-            "counts_by_provider": {},
-            "rejection_reasons": {},
-            "provider_errors": {},
-            "provider_diagnostics": {},
-        },
+        "company_signals": company_signals,
     }
     try:
-        report_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+        report_path.write_text(json.dumps(payload, indent=2, sort_keys=True, default=str), encoding="utf-8")
     except Exception as exc:
         logger.error("Failed to write source discovery report", path=str(report_path), error=str(exc))
     return report_path

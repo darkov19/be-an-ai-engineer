@@ -1,5 +1,6 @@
+import base64
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -10,14 +11,17 @@ from backend.services.source_discovery import (
     CommonCrawlATSProvider,
     DiscoveryProviderResult,
     DiscoveryRunResult,
+    GitHubOrgSignalProvider,
     HNWhoIsHiringProvider,
     OptionalSeedProvider,
+    RedditHiringSignalProvider,
     SourceCandidate,
     ValidationResult,
     VCPortfolioProvider,
     VertexAISearchSignalProvider,
     WellfoundSignalProvider,
     YCCompanyDirectoryProvider,
+    compute_provider_yield,
     default_discovery_providers,
     discover_sources,
     discover_from_hn,
@@ -51,6 +55,8 @@ def disable_env_configured_optional_providers():
         patch("backend.services.source_discovery.settings.common_crawl_discovery_enabled", False),
         patch("backend.services.source_discovery.settings.yc_company_discovery_enabled", False),
         patch("backend.services.source_discovery.settings.vc_portfolio_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.github_org_discovery_enabled", False),
+        patch("backend.services.source_discovery.settings.reddit_hiring_discovery_enabled", False),
     ):
         yield
 
@@ -82,6 +88,17 @@ class AsyncLineResponse:
     async def aiter_lines(self):
         for line in self.text.splitlines():
             yield line
+
+
+def json_response(payload: dict, status_code: int = 200, headers: dict | None = None):
+    response = MagicMock()
+    response.json.return_value = payload
+    response.headers = headers or {}
+    response.status_code = status_code
+    response.content = json.dumps(payload).encode("utf-8")
+    response.text = response.content.decode("utf-8")
+    response.raise_for_status.return_value = None
+    return response
 
 
 def test_normalize_ats_url_supported_patterns():
@@ -125,13 +142,14 @@ def test_normalize_ats_url_rejects_malformed_and_unsupported():
 
 
 def test_safe_provider_error_redacts_credentials_with_whitespace_boundaries():
-    error = RuntimeError("failed key=secret api_key=another token=third cx=fourth done")
+    error = RuntimeError("failed key=secret api_key=another token=third client_secret=fifth cx=fourth done")
 
     redacted = _safe_provider_error(error)
 
-    assert "secret" not in redacted
+    assert "key=secret" not in redacted
     assert "another" not in redacted
     assert "third" not in redacted
+    assert "fifth" not in redacted
     assert "fourth" not in redacted
     assert "key=[redacted]" in redacted
 
@@ -270,6 +288,20 @@ def test_default_discovery_providers_include_seed_as_optional_provider(tmp_path)
     assert isinstance(providers[1], OptionalSeedProvider)
 
 
+def test_long_tail_provider_settings_are_safe_by_default():
+    from backend.config import settings
+
+    assert settings.github_org_discovery_enabled is False
+    assert settings.github_org_token is None
+    assert "llm" in settings.github_org_topics
+    assert settings.github_org_max_search_queries <= len(settings.github_org_topics.split(","))
+    assert settings.reddit_hiring_discovery_enabled is False
+    assert settings.reddit_hiring_allow_unauthenticated is False
+    assert "MachineLearningJobs" in settings.reddit_hiring_subreddits
+    assert settings.discovery_stale_source_days > 0
+    assert settings.discovery_repeated_rejection_count > 1
+
+
 def test_default_discovery_providers_append_enabled_scale_providers(tmp_path):
     with (
         patch("backend.services.source_discovery.settings.vertex_search_enabled", False),
@@ -293,6 +325,20 @@ def test_default_discovery_providers_append_enabled_scale_providers(tmp_path):
     assert isinstance(providers[2], CommonCrawlATSProvider)
     assert isinstance(providers[3], YCCompanyDirectoryProvider)
     assert isinstance(providers[4], VCPortfolioProvider)
+
+
+def test_default_discovery_providers_append_enabled_long_tail_providers(tmp_path):
+    with (
+        patch("backend.services.source_discovery.settings.github_org_discovery_enabled", True),
+        patch("backend.services.source_discovery.settings.github_org_token", None),
+        patch("backend.services.source_discovery.settings.reddit_hiring_discovery_enabled", True),
+        patch("backend.services.source_discovery.settings.reddit_hiring_allow_unauthenticated", True),
+    ):
+        providers = default_discovery_providers(tmp_path / "missing-seeds.json")
+
+    assert [provider.name for provider in providers][-2:] == ["github_org_signal", "reddit_hiring_signal"]
+    assert isinstance(providers[-2], GitHubOrgSignalProvider)
+    assert isinstance(providers[-1], RedditHiringSignalProvider)
 
 
 @pytest.mark.asyncio
@@ -332,6 +378,339 @@ async def test_vertex_provider_skips_when_disabled_or_credentials_missing(tmp_pa
     assert disabled_result.company_signals == []
     assert disabled_result.provider_diagnostics["vertex_ai_search"]["status"] == "disabled"
     assert missing_result.provider_diagnostics["vertex_ai_search"]["reason"] == "missing_credentials"
+
+
+@pytest.mark.asyncio
+async def test_github_provider_skips_when_disabled_or_caps_zero():
+    disabled = GitHubOrgSignalProvider(enabled=False)
+    capped = GitHubOrgSignalProvider(enabled=True, max_search_queries=0)
+
+    disabled_result = await disabled.discover()
+    capped_result = await capped.discover()
+
+    assert disabled_result.provider_diagnostics["github_org_signal"]["status"] == "disabled"
+    assert disabled_result.provider_diagnostics["github_org_signal"]["reason"] == "github_org_discovery_disabled"
+    assert capped_result.provider_diagnostics["github_org_signal"]["status"] == "cap_exhausted"
+    assert capped_result.company_signals == []
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_github_provider_uses_official_api_and_maps_repo_without_secret_leak(mock_get):
+    readme = base64.b64encode(
+        b"Careers: https://acme.ai/careers Apply: https://jobs.lever.co/acme"
+    ).decode("ascii")
+    mock_get.side_effect = [
+        json_response(
+            {
+                "incomplete_results": True,
+                "items": [
+                    {
+                        "full_name": "acme/rag",
+                        "html_url": "https://github.com/acme/rag",
+                        "homepage": "https://acme.ai",
+                        "description": "RAG developer tools",
+                        "topics": ["llm", "rag"],
+                        "owner": {
+                            "login": "acme",
+                            "type": "Organization",
+                            "html_url": "https://github.com/acme",
+                        },
+                    }
+                ],
+            },
+            headers={"x-ratelimit-remaining": "29", "x-ratelimit-reset": "1770000000"},
+        ),
+        json_response({"name": "Acme AI", "blog": "https://acme.ai", "html_url": "https://github.com/acme"}),
+        json_response({"html_url": "https://github.com/acme/rag/blob/main/README.md", "content": readme}),
+    ]
+    provider = GitHubOrgSignalProvider(
+        enabled=True,
+        token="ghp_secret-token",
+        topics=["llm"],
+        queries=[],
+        max_search_queries=1,
+        max_pages_per_query=1,
+        max_repos_per_query=1,
+        max_orgs_per_run=1,
+        max_organization_metadata_fetches=1,
+        max_readme_fetches_per_run=1,
+    )
+
+    result = await provider.discover()
+
+    assert [signal.provider for signal in result.company_signals] == ["github_org_signal"]
+    signal = result.company_signals[0]
+    assert signal.company_name == "Acme AI"
+    assert signal.company_domain == "acme.ai"
+    assert signal.careers_url == "https://acme.ai/careers"
+    assert signal.direct_ats_url == "https://jobs.lever.co/acme"
+    assert signal.confidence == 0.45
+    assert signal.metadata["repository_full_name"] == "acme/rag"
+    assert signal.metadata["repository_topics"] == ["llm", "rag"]
+    assert signal.metadata["readme_urls"] == [
+        "https://acme.ai/careers",
+        "https://jobs.lever.co/acme",
+    ]
+    assert "Careers:" not in json.dumps(signal.metadata)
+    diagnostics = result.provider_diagnostics["github_org_signal"]
+    assert diagnostics["query_count"] == 1
+    assert diagnostics["repository_count"] == 1
+    assert diagnostics["organization_count"] == 1
+    assert diagnostics["readme_fetch_count"] == 1
+    assert diagnostics["incomplete_result_count"] == 1
+    assert diagnostics["rate_limit_remaining"] == "29"
+    assert "ghp_secret-token" not in json.dumps(diagnostics)
+    search_call = mock_get.call_args_list[0]
+    assert search_call.args[0] == "https://api.github.com/search/repositories"
+    assert search_call.kwargs["params"]["q"] == "topic:llm"
+    assert search_call.kwargs["headers"]["Accept"] == "application/vnd.github+json"
+    assert search_call.kwargs["headers"]["X-GitHub-Api-Version"] == "2022-11-28"
+    assert search_call.kwargs["headers"]["Authorization"] == "Bearer ghp_secret-token"
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_github_provider_reports_rate_errors_without_leaking_token(mock_get):
+    response = json_response({"message": "secondary rate limit token=ghp_secret"}, status_code=403)
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "forbidden token=ghp_secret",
+        request=httpx.Request("GET", "https://api.github.com/search/repositories"),
+        response=response,
+    )
+    mock_get.return_value = response
+    provider = GitHubOrgSignalProvider(enabled=True, token="ghp_secret", topics=["llm"], queries=[], max_search_queries=1)
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["github_org_signal"]
+    assert diagnostics["status"] == "rate_limited"
+    assert diagnostics["error_count"] == 1
+    assert "ghp_secret" not in json.dumps(diagnostics)
+
+
+@pytest.mark.asyncio
+async def test_github_provider_rejects_user_repos_and_tolerates_missing_topics():
+    provider = GitHubOrgSignalProvider(enabled=True)
+    provider._fetch_org_metadata = AsyncMock(return_value={"name": "Acme AI", "blog": "https://acme.ai"})
+    provider._fetch_readme_urls = AsyncMock(return_value=([], None))
+
+    user_repo = {
+        "full_name": "alice/rag",
+        "html_url": "https://github.com/alice/rag",
+        "owner": {"login": "alice", "type": "User"},
+    }
+    org_repo = {
+        "full_name": "acme/rag",
+        "html_url": "https://github.com/acme/rag",
+        "homepage": "https://acme.ai",
+        "topics": None,
+        "owner": {"login": "acme", "type": "Organization", "html_url": "https://github.com/acme"},
+    }
+
+    rejected = await provider._signal_from_repo(AsyncMock(), user_repo, "topic:llm", 1)
+    signal = await provider._signal_from_repo(AsyncMock(), org_repo, "topic:llm", 2)
+
+    assert rejected is None
+    assert provider.diagnostics["rejected_signal_reasons"]["non_organization_owner"] == 1
+    assert signal is not None
+    assert signal.category_hints == []
+    assert signal.metadata["repository_topics"] == []
+
+
+@pytest.mark.asyncio
+async def test_reddit_provider_requires_credentials_or_explicit_unauthenticated_mode():
+    provider = RedditHiringSignalProvider(enabled=True, allow_unauthenticated=False)
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["reddit_hiring_signal"]
+    assert diagnostics["status"] == "disabled"
+    assert diagnostics["reason"] == "missing_credentials"
+    assert result.company_signals == []
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+@patch("httpx.AsyncClient.post")
+async def test_reddit_provider_does_not_fallback_to_unauthenticated_when_oauth_fails(mock_post, mock_get):
+    response = json_response({"error": "invalid_client"}, status_code=401)
+    response.raise_for_status.side_effect = httpx.HTTPStatusError(
+        "unauthorized client_secret=secret",
+        request=httpx.Request("POST", "https://www.reddit.com/api/v1/access_token"),
+        response=response,
+    )
+    mock_post.return_value = response
+    provider = RedditHiringSignalProvider(
+        enabled=True,
+        client_id="client",
+        client_secret="secret",
+        allow_unauthenticated=False,
+    )
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["reddit_hiring_signal"]
+    assert diagnostics["status"] == "auth_error"
+    assert diagnostics["error_count"] == 1
+    assert "client_secret=secret" not in json.dumps(diagnostics)
+    assert result.company_signals == []
+    mock_get.assert_not_called()
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_reddit_provider_uses_search_api_paginates_and_maps_lower_confidence_signals(mock_get):
+    mock_get.side_effect = [
+        json_response(
+            {
+                "data": {
+                    "after": "page2",
+                    "children": [
+                        {
+                            "data": {
+                                "title": "Acme AI is hiring Python engineers",
+                                "subreddit": "PythonJobs",
+                                "permalink": "/r/PythonJobs/comments/abc/acme/",
+                                "url": "https://acme.ai/careers",
+                                "selftext": "Apply at https://jobs.ashbyhq.com/acme",
+                                "created_utc": 1770000000,
+                                "over_18": False,
+                                "removed_by_category": None,
+                                "author": "hiring-team",
+                            }
+                        }
+                    ],
+                }
+            }
+        ),
+        json_response({"data": {"after": None, "children": []}}),
+    ]
+    provider = RedditHiringSignalProvider(
+        enabled=True,
+        allow_unauthenticated=True,
+        subreddits=["PythonJobs"],
+        search_terms=["hiring"],
+        max_pages_per_query=2,
+        max_posts_per_query=10,
+        max_posts_per_run=10,
+        request_delay_seconds=0,
+    )
+
+    result = await provider.discover()
+
+    assert [signal.provider for signal in result.company_signals] == ["reddit_hiring_signal"]
+    signal = result.company_signals[0]
+    assert signal.company_domain == "acme.ai"
+    assert signal.careers_url == "https://acme.ai/careers"
+    assert signal.direct_ats_url == "https://jobs.ashbyhq.com/acme"
+    assert signal.confidence == 0.4
+    assert signal.metadata["subreddit"] == "PythonJobs"
+    assert "Apply at" not in json.dumps(signal.metadata)
+    diagnostics = result.provider_diagnostics["reddit_hiring_signal"]
+    assert diagnostics["subreddit_count"] == 1
+    assert diagnostics["query_count"] == 1
+    assert diagnostics["posts_scanned"] == 1
+    assert diagnostics["signals_emitted"] == 1
+    first_call = mock_get.call_args_list[0]
+    assert first_call.args[0] == "https://www.reddit.com/r/PythonJobs/search.json"
+    assert first_call.kwargs["params"] == {
+        "q": "hiring",
+        "restrict_sr": "1",
+        "sort": "new",
+        "t": "month",
+        "type": "link",
+        "limit": 10,
+    }
+    assert "be-an-ai-engineer" in first_call.kwargs["headers"]["User-Agent"]
+    assert mock_get.call_args_list[1].kwargs["params"]["after"] == "page2"
+    assert mock_get.call_args_list[1].kwargs["params"]["count"] == 1
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_reddit_provider_records_page_and_post_query_cap_exhaustion(mock_get):
+    mock_get.return_value = json_response(
+        {
+            "data": {
+                "after": "next-page",
+                "children": [
+                    {
+                        "data": {
+                            "title": "Acme AI is hiring",
+                            "subreddit": "PythonJobs",
+                            "permalink": "/r/PythonJobs/comments/abc/acme/",
+                            "url": "https://acme.ai/careers",
+                            "over_18": False,
+                        }
+                    }
+                ],
+            }
+        }
+    )
+    provider = RedditHiringSignalProvider(
+        enabled=True,
+        allow_unauthenticated=True,
+        subreddits=["PythonJobs"],
+        search_terms=["hiring"],
+        max_pages_per_query=1,
+        max_posts_per_query=1,
+        max_posts_per_run=10,
+        request_delay_seconds=0,
+    )
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["reddit_hiring_signal"]
+    assert "pages_per_query" in diagnostics["cap_exhaustion"]
+    assert "posts_per_query" in diagnostics["cap_exhaustion"]
+
+
+@pytest.mark.asyncio
+@patch("httpx.AsyncClient.get")
+async def test_reddit_provider_rejects_mature_removed_and_locatorless_posts(mock_get):
+    mock_get.return_value = json_response(
+        {
+            "data": {
+                "children": [
+                    {"data": {"title": "mature", "over_18": True, "permalink": "/r/PythonJobs/comments/1"}},
+                    {
+                        "data": {
+                            "title": "removed",
+                            "removed_by_category": "moderator",
+                            "permalink": "/r/PythonJobs/comments/2",
+                        }
+                    },
+                    {
+                        "data": {
+                            "title": "Hiring soon but no company locator",
+                            "selftext": "DM me",
+                            "permalink": "/r/PythonJobs/comments/3",
+                            "url": "https://www.reddit.com/r/PythonJobs/comments/3/hiring_soon/",
+                            "over_18": False,
+                        }
+                    },
+                ],
+                "after": None,
+            }
+        }
+    )
+    provider = RedditHiringSignalProvider(
+        enabled=True,
+        allow_unauthenticated=True,
+        subreddits=["PythonJobs"],
+        search_terms=["hiring"],
+    )
+
+    result = await provider.discover()
+
+    diagnostics = result.provider_diagnostics["reddit_hiring_signal"]
+    assert result.company_signals == []
+    assert diagnostics["rejected_signal_reasons"] == {
+        "mature_or_explicit": 1,
+        "deleted_or_removed": 1,
+        "missing_company_locator": 1,
+    }
 
 
 @pytest.mark.asyncio
@@ -1527,6 +1906,48 @@ class FreshnessPool:
         return self.conn
 
 
+class ProviderYieldCursor:
+    def __init__(self, row_sets):
+        self.row_sets = row_sets
+        self.executed = []
+        self.index = -1
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, query, vars=None):
+        self.executed.append((query, vars))
+        self.index += 1
+
+    async def fetchall(self):
+        return self.row_sets[self.index]
+
+
+class ProviderYieldConn:
+    def __init__(self, row_sets):
+        self.cursor_obj = ProviderYieldCursor(row_sets)
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def cursor(self):
+        return self.cursor_obj
+
+
+class ProviderYieldPool:
+    def __init__(self, row_sets):
+        self.conn = ProviderYieldConn(row_sets)
+
+    def connection(self):
+        return self.conn
+
+
 class PersistCursor:
     def __init__(self):
         self.execute_calls = []
@@ -1596,8 +2017,10 @@ async def test_load_active_source_config_returns_expected_shape():
 @pytest.mark.asyncio
 async def test_get_source_freshness_counts_queries_registry_state():
     pool = FreshnessPool((2, 3, 4))
+    run_started_at = datetime(2026, 5, 28, tzinfo=timezone.utc)
 
-    counts = await get_source_freshness_counts(pool, MagicMock(), validated_within_current_run=5)
+    with patch("backend.services.source_discovery.settings.discovery_stale_source_days", 30):
+        counts = await get_source_freshness_counts(pool, run_started_at, validated_within_current_run=5)
 
     assert counts == {
         "never_validated": 2,
@@ -1606,6 +2029,112 @@ async def test_get_source_freshness_counts_queries_registry_state():
         "inactive": 4,
     }
     assert "last_validated_at < %s" in pool.conn.cursor_obj.executed[0][0]
+    assert pool.conn.cursor_obj.executed[0][1] == (run_started_at - timedelta(days=30),)
+
+
+@pytest.mark.asyncio
+async def test_compute_provider_yield_combines_run_data_registry_and_disabled_providers():
+    pool = ProviderYieldPool(
+        [
+            [("seed_file", 3, 1, 2, datetime(2026, 5, 1, tzinfo=timezone.utc))],
+            [("seed_file", "blocked_provider", 4, datetime(2026, 5, 2, tzinfo=timezone.utc))],
+            [("github_org_signal", datetime(2026, 5, 3, tzinfo=timezone.utc))],
+        ]
+    )
+    validation = ValidationResult(
+        SourceCandidate("Acme", "greenhouse", "acme", "https://boards.greenhouse.io/acme", "seed_file"),
+        "validated",
+    )
+    signal = CompanySignal(
+        provider="github_org_signal",
+        evidence_url="https://github.com/acme/rag",
+        company_domain="acme.ai",
+    )
+    company_result = CompanyDiscoveryRunResult(
+        signals=[signal],
+        resolutions=[
+            CompanySignalResolution(signal=signal, status="rejected", rejection_reason="no_canonical_source_found")
+        ],
+        provider_diagnostics={
+            "github_org_signal": {"status": "ok", "rate_limit_remaining": "28"},
+            "reddit_hiring_signal": {"status": "disabled", "reason": "reddit_hiring_discovery_disabled"},
+        },
+    )
+
+    provider_yield = await compute_provider_yield(
+        pool,
+        ["seed_file", "github_org_signal"],
+        [validation],
+        company_result,
+        {"github_org_signal": 2},
+        active_source_count_before_run=2,
+        active_source_count_after_run=4,
+    )
+
+    assert set(provider_yield["providers"]) == {"seed_file", "github_org_signal", "reddit_hiring_signal"}
+    assert provider_yield["providers"]["seed_file"]["candidate_count"] == 1
+    assert provider_yield["providers"]["seed_file"]["validated_active_source_count"] == 3
+    assert provider_yield["providers"]["seed_file"]["stale_source_count"] == 1
+    assert provider_yield["providers"]["seed_file"]["inactive_source_count"] == 2
+    assert provider_yield["providers"]["seed_file"]["repeated_rejection_count"] == 4
+    assert provider_yield["providers"]["github_org_signal"]["signals_emitted"] == 1
+    assert provider_yield["providers"]["github_org_signal"]["unsupported_url_count"] == 2
+    assert provider_yield["providers"]["github_org_signal"]["rejected_count"] == 1
+    assert provider_yield["providers"]["reddit_hiring_signal"]["cap_quota_status"]["reason"] == "reddit_hiring_discovery_disabled"
+    assert provider_yield["summary"]["active_source_growth_since_previous_run"] == 2
+    assert "seed_file" in provider_yield["summary"]["high_yield_providers"]
+
+
+@pytest.mark.asyncio
+async def test_compute_provider_yield_does_not_double_count_existing_company_signal_validation():
+    candidate = SourceCandidate(
+        "Acme",
+        "greenhouse",
+        "acme",
+        "https://boards.greenhouse.io/acme",
+        "github_org_signal",
+    )
+    validation = ValidationResult(candidate, "validated")
+    signal = CompanySignal(
+        provider="github_org_signal",
+        evidence_url="https://github.com/acme/rag",
+        direct_ats_url="https://boards.greenhouse.io/acme",
+    )
+    company_result = CompanyDiscoveryRunResult(
+        signals=[signal],
+        resolutions=[
+            CompanySignalResolution(
+                signal=signal,
+                status="resolved",
+                resolved_candidate=candidate,
+                validation_result=validation,
+            )
+        ],
+        provider_diagnostics={
+            "github_org_signal": {
+                "status": "partial_error",
+                "error_count": 2,
+                "unsupported_url_count": 3,
+            }
+        },
+    )
+
+    provider_yield = await compute_provider_yield(
+        MagicMock(),
+        ["github_org_signal"],
+        [validation],
+        company_result,
+        active_source_count_before_run=1,
+        active_source_count_after_run=1,
+        active_source_keys_before_run={("greenhouse", "acme")},
+    )
+
+    metrics = provider_yield["providers"]["github_org_signal"]
+    assert metrics["validated_active_source_count"] == 1
+    assert metrics["newly_activated_source_count"] == 0
+    assert metrics["resolved_count"] == 1
+    assert metrics["error_count"] == 2
+    assert metrics["unsupported_url_count"] == 3
 
 
 @pytest.mark.asyncio
@@ -1684,6 +2213,28 @@ async def test_persist_company_discovery_results_upserts_signals_and_validated_s
 
 
 @pytest.mark.asyncio
+async def test_persist_company_discovery_results_serializes_provider_yield_datetimes():
+    signal = CompanySignal(provider="unit", evidence_url="https://example.com/evidence", company_domain="example.com")
+    result = CompanyDiscoveryRunResult(
+        signals=[signal],
+        provider_yield={
+            "providers": {
+                "unit": {
+                    "last_seen_at": datetime(2026, 5, 28, tzinfo=timezone.utc),
+                }
+            }
+        },
+    )
+    pool = PersistPool()
+
+    await persist_company_discovery_results(pool, result, 1.25, None)
+
+    run_insert = next(call for call in pool.conn.cursor_obj.execute_calls if "INSERT INTO company_discovery_runs" in call[0])
+    metadata = json.loads(run_insert[1][7])
+    assert metadata["provider_yield"]["providers"]["unit"]["last_seen_at"] == "2026-05-28 00:00:00+00:00"
+
+
+@pytest.mark.asyncio
 @patch("backend.services.source_discovery.discover_from_hn", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.discover_from_seed_file", new_callable=AsyncMock)
 @patch("backend.services.source_discovery.expand_careers_page_once", new_callable=AsyncMock)
@@ -1720,6 +2271,8 @@ async def test_discover_sources_deduplicates_and_writes_report(
     assert report["company_signals"]["signal_count"] == 0
     assert report["company_signals"]["provider_diagnostics"]["vertex_ai_search"]["status"] == "disabled"
     assert report["company_signals"]["provider_diagnostics"]["wellfound_signal"]["status"] == "disabled"
+    assert report["company_signals"]["provider_yield"]["providers"]["vertex_ai_search"]["cap_quota_status"]["status"] == "disabled"
+    assert "github_org_signal" in report["company_signals"]["provider_yield"]["providers"]
     mock_persist_company.assert_awaited_once()
 
 

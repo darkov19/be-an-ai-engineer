@@ -1,0 +1,453 @@
+{
+  "active_source_count_after_run": 94,
+  "candidate_count": 111,
+  "company_signals": {
+    "counts_by_provider": {
+      "vc_portfolio": 3,
+      "vertex_ai_search": 10
+    },
+    "error_count": 1,
+    "provider_diagnostics": {
+      "common_crawl_ats": {
+        "candidate_count": 6,
+        "cap_exhausted": true,
+        "crawl_ids_queried": [
+          "CC-MAIN-2026-21"
+        ],
+        "errors": [],
+        "malformed_records": 0,
+        "pattern_count": 5,
+        "per_pattern": [
+          {
+            "candidates_emitted": 2,
+            "cap_exhausted": false,
+            "crawl_id": "CC-MAIN-2026-21",
+            "errors": [],
+            "records_returned": 2,
+            "unsupported_count": 0,
+            "url_pattern": "boards.greenhouse.io/*"
+          },
+          {
+            "candidates_emitted": 2,
+            "cap_exhausted": false,
+            "crawl_id": "CC-MAIN-2026-21",
+            "errors": [],
+            "records_returned": 2,
+            "unsupported_count": 0,
+            "url_pattern": "job-boards.greenhouse.io/*"
+          },
+          {
+            "candidates_emitted": 2,
+            "cap_exhausted": false,
+            "crawl_id": "CC-MAIN-2026-21",
+            "errors": [],
+            "records_returned": 2,
+            "unsupported_count": 0,
+            "url_pattern": "jobs.lever.co/*"
+          },
+          {
+            "candidates_emitted": 2,
+            "cap_exhausted": false,
+            "crawl_id": "CC-MAIN-2026-21",
+            "errors": [],
+            "records_returned": 2,
+            "unsupported_count": 0,
+            "url_pattern": "jobs.ashbyhq.com/*"
+          },
+          {
+            "candidates_emitted": 1,
+            "cap_exhausted": false,
+            "crawl_id": "CC-MAIN-2026-21",
+            "errors": [],
+            "records_returned": 2,
+            "unsupported_count": 1,
+            "url_pattern": "apply.workable.com/*"
+          }
+        ],
+        "records_scanned": 10,
+        "status": "ok",
+        "unsupported_count": 1
+      },
+      "github_org_signal": {
+        "max_repos_per_query": 10,
+        "max_search_queries": 6,
+        "reason": "github_org_discovery_disabled",
+        "status": "disabled"
+      },
+      "reddit_hiring_signal": {
+        "allow_unauthenticated": false,
+        "max_posts_per_run": 50,
+        "reason": "reddit_hiring_discovery_disabled",
+        "status": "disabled"
+      },
+      "vc_portfolio": {
+        "errors": [],
+        "per_target": [
+          {
+            "cap_exhausted": false,
+            "errors": [],
+            "firm": "Index",
+            "rejected_count": 0,
+            "rows_seen": 3,
+            "signals_emitted": 3,
+            "source_url": "https://www.indexventures.com/companies"
+          }
+        ],
+        "rejected_signal_reasons": {},
+        "signals_emitted": 3,
+        "status": "ok",
+        "target_count": 1
+      },
+      "vertex_ai_search": {
+        "daily_cap": 5,
+        "max_queries_per_run": 1,
+        "monthly_cap": 20,
+        "prod_mode": false,
+        "queries_used": 1,
+        "service": "discoveryengine.googleapis.com",
+        "status": "ok"
+      },
+      "wellfound_signal": {
+        "auto_extract_enabled": false,
+        "max_pages_per_run": 1,
+        "reason": "wellfound_discovery_disabled",
+        "status": "disabled"
+      },
+      "yc_company_directory": {
+        "category_counts": {},
+        "errors": [],
+        "rejected_signal_reasons": {},
+        "rows_seen": 0,
+        "signals_emitted": 0,
+        "status": "ok"
+      }
+    },
+    "provider_errors": {},
+    "provider_yield": {
+      "providers": {
+        "common_crawl_ats": {
+          "active_source_growth_since_previous_run": 3,
+          "candidate_count": 6,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": "ok"
+          },
+          "error_count": 2,
+          "high_yield_company_or_source_count": 3,
+          "inactive_source_count": 0,
+          "last_seen_at": null,
+          "last_success_at": "2026-05-28 13:11:49.628033+00:00",
+          "newly_activated_source_count": 3,
+          "provider": "common_crawl_ats",
+          "rejected_count": 1,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {
+            "blocked_provider": 1
+          },
+          "unsupported_url_count": 2,
+          "validated_active_source_count": 3
+        },
+        "github_org_signal": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 0,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": "github_org_discovery_disabled",
+            "status": "disabled"
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": "2026-05-28 13:07:27.013642+00:00",
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "github_org_signal",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        },
+        "hn_who_is_hiring": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 95,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": null
+          },
+          "error_count": 2,
+          "high_yield_company_or_source_count": 85,
+          "inactive_source_count": 0,
+          "last_seen_at": "2026-05-28 13:11:49.628033+00:00",
+          "last_success_at": "2026-05-28 13:11:49.628033+00:00",
+          "newly_activated_source_count": 0,
+          "provider": "hn_who_is_hiring",
+          "rejected_count": 8,
+          "repeated_rejection_count": 32,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {
+            "blocked_provider": 22,
+            "empty_descriptions": 10
+          },
+          "unsupported_url_count": 442,
+          "validated_active_source_count": 85
+        },
+        "reddit_hiring_signal": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 0,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": "reddit_hiring_discovery_disabled",
+            "status": "disabled"
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": "2026-05-28 13:07:27.013642+00:00",
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "reddit_hiring_signal",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        },
+        "seed_file": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 0,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": null
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": null,
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "seed_file",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        },
+        "unsupported": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 443,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": null
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": "2026-05-28 13:11:49.628033+00:00",
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "unsupported",
+          "rejected_count": 443,
+          "repeated_rejection_count": 1895,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {
+            "unsupported_or_no_ats_detected": 1895
+          },
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        },
+        "vc_portfolio": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 0,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": "ok"
+          },
+          "error_count": 1,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": "2026-05-28 12:04:54.827113+00:00",
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "vc_portfolio",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 3,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        },
+        "vertex_ai_search": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 10,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": "ok"
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 10,
+          "inactive_source_count": 0,
+          "last_seen_at": "2026-05-28 07:50:53.271396+00:00",
+          "last_success_at": "2026-05-28 13:11:49.628033+00:00",
+          "newly_activated_source_count": 0,
+          "provider": "vertex_ai_search",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 10,
+          "signals_emitted": 10,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 10
+        },
+        "wellfound_signal": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 0,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": "wellfound_discovery_disabled",
+            "status": "disabled"
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": null,
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "wellfound_signal",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        },
+        "yc_company_directory": {
+          "active_source_growth_since_previous_run": 0,
+          "candidate_count": 0,
+          "cap_quota_status": {
+            "cap_exhaustion": [],
+            "rate_limit_remaining": null,
+            "rate_limit_reset": null,
+            "reason": null,
+            "status": "ok"
+          },
+          "error_count": 0,
+          "high_yield_company_or_source_count": 0,
+          "inactive_source_count": 0,
+          "last_seen_at": null,
+          "last_success_at": null,
+          "newly_activated_source_count": 0,
+          "provider": "yc_company_directory",
+          "rejected_count": 0,
+          "repeated_rejection_count": 0,
+          "resolved_count": 0,
+          "signals_emitted": 0,
+          "stale_source_count": 0,
+          "top_rejection_reasons": {},
+          "unsupported_url_count": 0,
+          "validated_active_source_count": 0
+        }
+      },
+      "summary": {
+        "active_source_growth_since_previous_run": 3,
+        "high_yield_providers": [
+          "common_crawl_ats",
+          "hn_who_is_hiring",
+          "vertex_ai_search"
+        ],
+        "inactive_source_count": 0,
+        "low_yield_providers": [
+          "unsupported",
+          "vc_portfolio",
+          "yc_company_directory"
+        ],
+        "provider_count": 10,
+        "repeated_rejection_count": 1927,
+        "stale_source_count": 0
+      }
+    },
+    "rejected_count": 0,
+    "rejection_reasons": {
+      "no_canonical_source_found": 2,
+      "validation_error": 1
+    },
+    "resolved_count": 10,
+    "signal_count": 13,
+    "unresolved_count": 2
+  },
+  "counts_by_ats": {
+    "ashby": 53,
+    "greenhouse": 26,
+    "lever": 17,
+    "personio": 2,
+    "recruitee": 4,
+    "workable": 9
+  },
+  "coverage_gaps": {
+    "blocked_provider": 6,
+    "empty_descriptions": 3,
+    "irrelevant_postings": 0,
+    "no_ats_found": 443,
+    "unsupported_ats": 0
+  },
+  "error_count": 4,
+  "rejected_count": 452,
+  "source_freshness_counts": {
+    "inactive": 0,
+    "never_validated": 0,
+    "stale": 0,
+    "validated_within_current_run": 98
+  },
+  "top_rejection_reasons": {
+    "blocked_provider": 6,
+    "empty_descriptions": 3,
+    "unsupported_or_no_ats_detected": 443
+  },
+  "unsupported_url_count": 443,
+  "validated_count": 98
+}

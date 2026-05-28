@@ -94,6 +94,7 @@ async def test_resolve_company_signal_validates_supported_ats_before_activation(
     assert result.validation_result is mock_validate.return_value
     assert result.resolved_candidate is not None
     assert result.resolved_candidate.ats == "greenhouse"
+    assert mock_validate.await_args.args[0].discovery_method == "unit"
 
 
 @pytest.mark.asyncio

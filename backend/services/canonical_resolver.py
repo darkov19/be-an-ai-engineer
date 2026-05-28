@@ -175,7 +175,7 @@ async def _candidate_urls_for_signal(client: httpx.AsyncClient, signal: CompanyS
 
 async def resolve_company_signal(signal: CompanySignal) -> CompanySignalResolution:
     if signal.direct_ats_url:
-        direct = normalize_ats_url(signal.direct_ats_url, "company_signal", signal.company_name)
+        direct = normalize_ats_url(signal.direct_ats_url, signal.provider or "company_signal", signal.company_name)
         if not direct:
             return CompanySignalResolution(signal, "rejected", rejection_reason="unsupported_ats")
         validation = await validate_candidate_source(direct)
@@ -203,7 +203,7 @@ async def resolve_company_signal(signal: CompanySignal) -> CompanySignalResoluti
                 continue
 
             json_ld_evidence.extend(extract_jobposting_json_ld(html))
-            candidates, _ = detect_candidates_in_text(html, "company_signal", signal.company_name, base_url=page_url)
+            candidates, _ = detect_candidates_in_text(html, signal.provider or "company_signal", signal.company_name, base_url=page_url)
             for candidate in candidates:
                 validation = await validate_candidate_source(candidate)
                 if validation.validation_status == "validated":
@@ -216,7 +216,12 @@ async def resolve_company_signal(signal: CompanySignal) -> CompanySignalResoluti
                     rejected_result = validation
 
             # Inspect script/config text and anchors from known ATS URLs without following links.
-            candidates, _ = detect_candidates_in_text(html, "company_signal", signal.company_name, base_url=urljoin(page_url, "/"))
+            candidates, _ = detect_candidates_in_text(
+                html,
+                signal.provider or "company_signal",
+                signal.company_name,
+                base_url=urljoin(page_url, "/"),
+            )
             if candidates:
                 continue
 

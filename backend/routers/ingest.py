@@ -311,6 +311,7 @@ async def list_company_signals(request: Request):
     return {
         "provider_diagnostics": latest_run_metadata.get("provider_diagnostics", {}),
         "provider_errors": latest_run_metadata.get("provider_errors", {}),
+        "provider_yield": latest_run_metadata.get("provider_yield", {}),
         "company_signals": [
             {
                 "provider": row[0],

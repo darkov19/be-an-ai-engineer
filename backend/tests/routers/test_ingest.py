@@ -416,6 +416,14 @@ class MockCompanySignalCursor:
                     "vertex_ai_search": {"status": "disabled", "reason": "missing_credentials"}
                 },
                 "provider_errors": {"vertex_ai_search": "quota_exhausted"},
+                "provider_yield": {
+                    "providers": {
+                        "vertex_ai_search": {
+                            "signals_emitted": 0,
+                            "cap_quota_status": {"status": "disabled"},
+                        }
+                    }
+                },
             },
         )
 
@@ -462,6 +470,7 @@ async def test_get_company_signals_lists_recent_diagnostics(app, client):
     assert data["company_signals"][0]["metadata"]["source_urls"] == ["https://boards.greenhouse.io/acme"]
     assert data["provider_diagnostics"]["vertex_ai_search"]["reason"] == "missing_credentials"
     assert data["provider_errors"]["vertex_ai_search"] == "quota_exhausted"
+    assert data["provider_yield"]["providers"]["vertex_ai_search"]["cap_quota_status"]["status"] == "disabled"
 
 @pytest.mark.asyncio
 async def test_ingest_csv_success(app, client):
