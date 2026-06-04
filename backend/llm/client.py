@@ -160,9 +160,13 @@ async def select_unextracted_jobs(conn, limit: int = DEFAULT_BATCH_SIZE) -> list
     ]
 
 
-async def _post_to_hermes(jobs: list[JobForExtraction], prompt: str) -> dict[str, Any]:
+async def _post_to_hermes(
+    jobs: list[JobForExtraction],
+    prompt: str,
+    prompt_version: str = PROMPT_VERSION,
+) -> dict[str, Any]:
     payload = {
-        "prompt_version": PROMPT_VERSION,
+        "prompt_version": prompt_version,
         "schema_version": EXTRACTION_SCHEMA_VERSION,
         "prompt": prompt,
         "jobs": [_job_payload(job) for job in jobs],

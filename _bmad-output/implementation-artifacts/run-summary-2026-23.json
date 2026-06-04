@@ -1,0 +1,57 @@
+{
+  "accuracy_regression": false,
+  "detailed_diffs": [
+    {
+      "actual": {},
+      "eval_id": "eval-011",
+      "expected": {
+        "split": "held_out"
+      },
+      "matching_status": {},
+      "metrics": {},
+      "mismatched_fields": [],
+      "overall_f1": 1.0
+    }
+  ],
+  "field_metrics": {
+    "remote_policy": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "role_archetype": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "salary_band": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "seniority": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "skills": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "tech_stack": {
+      "f1": 1.0,
+      "precision": 1.0,
+      "recall": 1.0
+    }
+  },
+  "overall_metrics": {
+    "f1": 1.0,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "prompt_version": "extraction_v1",
+  "run_id": 99,
+  "run_timestamp": "2026-06-04T12:00:00Z",
+  "schema_version": "v1"
+}

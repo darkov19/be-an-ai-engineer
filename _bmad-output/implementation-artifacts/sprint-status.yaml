@@ -1,5 +1,5 @@
 # generated: 2026-05-26T19:38:26+05:30
-# last_updated: 2026-06-04T11:38:40+05:30
+# last_updated: 2026-06-04T13:00:51+05:30
 # project: be-an-ai-engineer
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-05-26T19:38:26+05:30
-last_updated: 2026-06-04T11:38:40+05:30
+last_updated: 2026-06-04T13:00:51+05:30
 project: be-an-ai-engineer
 project_key: NOKEY
 tracking_system: file-system
@@ -65,7 +65,7 @@ development_status:
 
   epic-4: in-progress
   4-1-llm-structured-extraction-and-proxy-verification: done
-  4-2-labeled-eval-set-management-and-accuracy-audits: backlog
+  4-2-labeled-eval-set-management-and-accuracy-audits: done
   4-3-interactive-evals-dashboard-and-regression-charts: backlog
   4-4-kill-criterion-enforcement-and-warning-banner: backlog
   epic-4-retrospective: optional
