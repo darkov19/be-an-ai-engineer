@@ -150,9 +150,11 @@ app.add_middleware(
 from backend.routers.profiles import router as profiles_router
 from backend.routers.ingest import router as ingest_router
 from backend.routers.evals import router as evals_router
+from backend.routers.jobs import router as jobs_router
 
 # Include API endpoints
 app.include_router(health_router, prefix="/api/v1")
 app.include_router(profiles_router, prefix="/api/v1")
 app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(evals_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
