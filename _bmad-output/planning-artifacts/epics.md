@@ -40,7 +40,7 @@ This document provides the complete epic and story breakdown for be-an-ai-engine
 - **FR22:** User can log weekly commitments and actions (applications filed, interviews completed, LinkedIn posts, voice notes, commits) against a structured schema
 - **FR23:** Report can display the accountability ledger showing prior-week commitments vs. actions, with gap flags, below the skill rankings — always visible, never hidden
 - **FR24:** Report can visually distinguish commitments that have been missed for 2 or more consecutive weeks
-- **FR25:** Pipeline can enforce a render-blocking kill criterion that prevents the weekly report from being generated when corpus size < 100 OR extraction accuracy < 70%
+- **FR25:** Pipeline can enforce a render-blocking locked state that prevents weekly report generation when ingestion fails, corpus size is 0, or both corpus size < 100 and extraction accuracy < 70%
 - **FR26:** Pipeline can enter a non-blocking warning mode when exactly one of the two kill-criterion thresholds is breached, displaying a 7-day recovery notice on the report
 - **FR27:** Pipeline can bound a user-initiated ingest debug session to 60 minutes before forcing a CSV fallback and committing a debug log to the repository
 - **FR28:** System can send an email to the user 24 hours after a kill criterion fires, containing an inline CSV pivot template and the run diagnostic block
@@ -478,7 +478,7 @@ So that faulty ingestion runs do not produce corrupt market metrics.
 
 **Given** a completed pipeline execution run
 **When** the pipeline checks the run metrics
-**Then** if the database corpus size is `< 100` postings OR the F1 extraction accuracy from the evaluation run is `< 70%`, the system locks the weekly report state and writes `kill-criterion-fired-YYYY-WW.json` to disk
+**Then** if ingestion fails, the corpus size is `0`, or both the database corpus size is `< 100` postings and the F1 extraction accuracy from the evaluation run is `< 70%`, the system locks the weekly report state and writes `kill-criterion-fired-YYYY-WW.json` to disk
 **And** attempting to view the dashboard renders a full-page alert banner: `▲ [KILL CRITERION TRIGGERED] Ingestion corpus or accuracy below minimum quality thresholds. Dashboard locked.`
 **And** if only one threshold is breached, the dashboard is not blocked but renders a yellow top banner: `▲ [WARNING] Danger Zone: Ingestion quality thresholds near limit. 7 days to recover before console lock.`
 
@@ -501,6 +501,10 @@ So that market data is aggregated into structured analytical indices.
 **And** skill co-occurrence groups are computed (e.g., probability of `pgvector` appearing with `RAG`)
 **And** salary-band and tech-stack correlations are calculated for listings with disclosed salary ranges
 **And** the experience threshold distribution (% of roles requiring 0/3+/5+/senior-only) is compiled
+**And** the aggregation refuses to publish market metrics when the health state is `locked`, annotates results when the health state is `warning`, and records corpus size, extracted-row coverage, and latest eval accuracy in the analytics response
+**And** postings with `extraction_status != "extracted"` are excluded from rankings and counted as coverage gaps
+**And** empty list fields, categorical `unknown` values, and `salary_band.kind = "not_disclosed"` are excluded from ranking/correlation denominators while remaining visible in coverage and disclosure diagnostics
+**And** postings that cannot be assigned to `US/EU remote` or `India-based AI product` are placed in an `unclassified` diagnostic bucket rather than being forced into either segment
 
 ### Story 5.2: Volumetric Brain Visualizer & ECG Telemetry Chart
 
@@ -623,5 +627,3 @@ So that hiring managers can verify my consistent job-search activity in a 90-sec
 **Then** the UI renders a publicly accessible log of all Loop B weekly metrics (applications, interviews, voice notes, LinkedIn posts) loaded from `loop-b-log.md` or a database
 **And** a link is provided to open `loop-b-log.md` directly in the GitHub repository
 **And** each weekly row includes links to public commits or LinkedIn posts, proving consistent build-in-public progression.
-
-

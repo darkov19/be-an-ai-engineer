@@ -256,7 +256,7 @@ These are **not MVP scope** and must not leak into Weeks 1–4.
 **Week 8 retrospective beat.** By Week 8, the kill criterion has fired exactly once (this Journey 2 moment in Week 2). The Week-4 public write-up named it as *the most hireable day of the MVP*. A reader of the repo sees: a system designed to fail loudly, a forcing mechanism that prevented the user's reflex to debug past the kill, a tired-variant recovery path that still produced the pivot, and a documented before/after that a tutorial project would never contain.
 
 **Capabilities revealed:**
-- Kill-criterion detection as a pipeline stage, checking corpus-size AND per-field eval accuracy before report render
+- Kill-criterion detection as a pipeline stage before report render: `locked` when ingestion fails, corpus is empty, or both corpus-size and held-out eval accuracy breach thresholds; `warning` when exactly one threshold breaches after a successful ingestion run; `nominal` when both thresholds pass
 - **Render-blocking forcing mechanism** — kill mode blocks weekly report render entirely
 - **60/15 debug-time-box** inside the tool with committed log artifact
 - **Warning mode** for ambiguous threshold breaches (one metric breached, one OK)
@@ -475,13 +475,14 @@ This section documents the full technical stack discovered across all previous P
 
 - **Structure:** 20 hand-labeled postings — 10 train (prompt tuning), 10 held-out (accuracy measurement). Split is fixed; the 10 held-out postings are never used to tune prompts.
 - **Metrics:** per-field precision and recall for each of the 6 target fields. Aggregate accuracy = mean across fields. Regression flag fires if aggregate accuracy drops > 3 percentage points from prior run.
-- **Output:** `eval/results/YYYY-WW.json` committed to repo after each run. `docs/eval-methodology.md` explains the split, the metrics, and 3 annotated failure cases.
-- **Kill criterion integration:** if held-out accuracy < 70% on any weekly run, the pipeline sets `kill_criterion_fired = True` before generating the report. Report render is blocked (Journey 2 render-blocking mechanism).
+- **Output:** `_bmad-output/implementation-artifacts/run-summary-YYYY-WW.json` committed for curated eval/report evidence. `docs/eval-methodology.md` explains the split, metrics, regression threshold, and current sample limitations.
+- **Quality-state integration:** before generating report output, the pipeline computes `system_state`: `locked` when ingestion fails, corpus size is 0, or both corpus size `< 100` and held-out F1 `< 0.70`; `warning` when exactly one of corpus size `< 100` or held-out F1 `< 0.70` is true after successful ingestion; `nominal` when ingestion succeeds and both thresholds pass.
 
 #### 5. Profile Diff Engine
 
 - **Input:** `profile.yaml` (human-edited, version-controlled). Tracks: skills list, seniority, tech stack, years of experience, geo preference.
 - **Diff logic:** set intersection / set difference against the week's ranked skill list per geo segment. Profile fit = (skills in top-30 market list) / 30.
+- **Missing-value policy:** postings with `extraction_status != "extracted"` are excluded from market rankings and reported as coverage gaps. Empty `skills` / `tech_stack` lists do not contribute to frequency or co-occurrence denominators. Categorical `unknown` values are counted in coverage diagnostics but excluded from ranked market signals and profile-fit calculations. `salary_band.kind = "not_disclosed"` contributes to salary disclosure rate only, not salary range correlations. Unknown geo inputs are assigned to an explicit `unclassified` diagnostic bucket rather than either product segment.
 - **Freshness tracking:** `profile.updated_at` timestamp. If `now - updated_at > 21 days`, a soft nudge renders above the profile-fit block on the report.
 
 #### 6. Accountability Ledger
@@ -548,7 +549,7 @@ This section documents the full technical stack discovered across all previous P
 | LLM extraction via local Hermes proxy (Claude Haiku), 6-field schema, 20-posting batches | Week 1–2 | Prompt v1 committed to `prompts/` |
 | CSV-fallback ingest path plumbed | Week 1 | Plumbed early, not bolted on after kill criterion fires |
 | 20-sample eval harness (10 train / 10 held-out), per-field P/R, regression flag | Week 2 | Held-out set locked before prompts are tuned |
-| Kill-criterion detection as pipeline stage (corpus < 100 OR accuracy < 70%) | Week 2 | Fires before report render |
+| Quality-state detection as pipeline stage (`locked` / `warning` / `nominal`) | Week 2 | Evaluates ingestion success, corpus size, and held-out accuracy before report render |
 | Render-blocking forcing mechanism (kill mode blocks report HTML generation) | Week 2 | Non-negotiable — removes option to ignore |
 | 60/15 debug time-box with committed log | Week 2 | Bounds developer reflex |
 | Warning mode for ambiguous threshold breaches | Week 2 | Yellow banner, 7-day recovery window |
@@ -615,7 +616,7 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 
 | Risk | Likelihood | Mitigation |
 |---|---|---|
-| LLM extraction accuracy < 70% on held-out set | Medium | Kill criterion fires → CSV fallback. Prompt v1 tuned on 10 train samples before held-out is ever measured. If accuracy stalls at 65–68%, cut scope (fewer fields, better prompts) rather than chase 70% on 6 fields. |
+| LLM extraction accuracy < 70% on held-out set | Medium | Quality state enters warning if corpus size is healthy, or locked if corpus is also below threshold. Prompt v1 tuned on 10 train samples before held-out is ever measured. If accuracy stalls at 65–68%, cut scope (fewer fields, better prompts) rather than chase 70% on 6 fields. |
 | Public ATS API schema change mid-run | Medium | Per-source ingest logged. `debug-attempt-YYYY-MM-DD.log` committed. 60/15 debug time-box prevents over-investment in fixing broken adapters. |
 | India company corpus coverage weaker than assumed | Medium | Week-0 empirical spike is a binding pre-code action. If ≥6 of the 15 India companies use unsupported ATSs, adjust geo-weighting expectations and document in Known Corpus Gaps. |
 | Local Hermes proxy connection drops | Medium | Connection status verification in pipeline, custom exception handling, warning banner on dashboard, fallback to CSV ingestion. |
@@ -685,8 +686,8 @@ Trigger: MVP deployed and Loop B running. Feature work capped at ≤5 hr/week. P
 - **FR22:** User can log weekly commitments and actions (applications filed, interviews completed, LinkedIn posts, voice notes, commits) against a structured schema
 - **FR23:** Report can display the accountability ledger showing prior-week commitments vs. actions, with gap flags, below the skill rankings — always visible, never hidden
 - **FR24:** Report can visually distinguish commitments that have been missed for 2 or more consecutive weeks
-- **FR25:** Pipeline can enforce a render-blocking kill criterion that prevents the weekly report from being generated when corpus size < 100 OR extraction accuracy < 70%
-- **FR26:** Pipeline can enter a non-blocking warning mode when exactly one of the two kill-criterion thresholds is breached, displaying a 7-day recovery notice on the report
+- **FR25:** Pipeline can enforce a render-blocking locked state that prevents weekly report generation when ingestion fails, corpus size is 0, or both corpus size `< 100` and extraction accuracy `< 70%`
+- **FR26:** Pipeline can enter a non-blocking warning mode when exactly one of corpus size `< 100` or extraction accuracy `< 70%` is breached after successful ingestion, displaying a 7-day recovery notice on the report
 - **FR27:** Pipeline can bound a user-initiated ingest debug session to 60 minutes before forcing a CSV fallback and committing a debug log to the repository
 - **FR28:** System can send an email to the user 24 hours after a kill criterion fires, containing an inline CSV pivot template and the run diagnostic block
 - **FR29:** System can send an email to the user with the weekly report body inline when the report page has not been accessed for 2 consecutive Saturdays
@@ -743,7 +744,7 @@ This product has an intentionally minimal security surface. There is no authenti
 Reliability is a product requirement for this project, not just an engineering concern. A hiring manager who clicks the URL and finds it down has completed the 90-second scan negatively. The cron run must produce an auditable result with no silent failures.
 
 - **NFR-R1:** Public report URL maintains ≥99% availability during Weeks 4–16 — monitored via Vercel uptime health checks; an alert triggers within 5 minutes of any outage exceeding 2 consecutive failed checks
-- **NFR-R2:** Every weekly pipeline run produces a committed output — either a `run-summary-YYYY-WW.json` artifact (success) or a `kill-criterion-fired-YYYY-WW.json` artifact (failure) — with no silent or partial failures that leave the repository in an ambiguous state
+- **NFR-R2:** Every weekly pipeline run produces an auditable output — either a curated `run-summary-YYYY-WW.json` artifact for successful/warning evidence or a `kill-criterion-fired-YYYY-WW.json` artifact for locked/failure evidence — with no silent or partial failures that leave the repository in an ambiguous state. Root-level runtime artifacts are ignored by default and must be reviewed before being force-added as curated evidence.
 - **NFR-R3:** Kill-criterion delayed-handoff email delivers within 5 minutes of the kill condition being logged (not 24 hours — the 24-hour delay is a deliberate product decision for Darko's recovery path, but the system must reliably trigger at the right moment)
 - **NFR-R4:** Skip-2-weeks nudge email delivers on the second consecutive missed Saturday within a 30-minute window of the cron run completing
 

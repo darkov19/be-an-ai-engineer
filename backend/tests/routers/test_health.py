@@ -48,6 +48,63 @@ class MockPool:
     def connection(self, *args, **kwargs):
         return self
 
+class MockHealthCursor:
+    def __init__(self, corpus_size, eval_accuracy, latest_ingest_status):
+        self.corpus_size = corpus_size
+        self.eval_accuracy = eval_accuracy
+        self.latest_ingest_status = latest_ingest_status
+        self.query_count = 0
+        self.execute_calls = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    async def execute(self, query, vars=None):
+        self.execute_calls.append((query, vars))
+
+    async def fetchone(self):
+        self.query_count += 1
+        if self.query_count == 1:
+            return (self.corpus_size,)
+        elif self.query_count == 2:
+            return (self.eval_accuracy,)
+        elif self.query_count == 3:
+            return (self.latest_ingest_status,)
+        return None
+
+class MockHealthConnection:
+    def __init__(self, corpus_size, eval_accuracy, latest_ingest_status):
+        self.corpus_size = corpus_size
+        self.eval_accuracy = eval_accuracy
+        self.latest_ingest_status = latest_ingest_status
+        self.cursors = []
+
+    def cursor(self, *args, **kwargs):
+        cur = MockHealthCursor(self.corpus_size, self.eval_accuracy, self.latest_ingest_status)
+        self.cursors.append(cur)
+        return cur
+
+class MockHealthPool:
+    def __init__(self, corpus_size, eval_accuracy, latest_ingest_status):
+        self.corpus_size = corpus_size
+        self.eval_accuracy = eval_accuracy
+        self.latest_ingest_status = latest_ingest_status
+        self.connections = []
+
+    async def __aenter__(self):
+        conn = MockHealthConnection(self.corpus_size, self.eval_accuracy, self.latest_ingest_status)
+        self.connections.append(conn)
+        return conn
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+    def connection(self, *args, **kwargs):
+        return self
+
 @pytest.mark.asyncio
 async def test_health_check_healthy(app, client):
     # Inject healthy pool
@@ -62,6 +119,71 @@ async def test_health_check_healthy(app, client):
     assert payload["data"]["status"] == "healthy"
     assert payload["data"]["database"] == "connected"
     assert "timestamp" in payload["data"]
+
+@pytest.mark.asyncio
+async def test_health_check_nominal_state(app, client):
+    mock_pool = MockHealthPool(150, 0.85, "success")
+    app.state.pool = mock_pool
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["corpus_size"] == 150
+    assert payload["data"]["eval_accuracy"] == 0.85
+    assert payload["data"]["system_state"] == "nominal"
+    assert payload["data"]["warning_mode"] is False
+
+@pytest.mark.asyncio
+async def test_health_check_warning_state(app, client):
+    mock_pool = MockHealthPool(50, 0.85, "success")
+    app.state.pool = mock_pool
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["system_state"] == "warning"
+    assert payload["data"]["warning_mode"] is True
+
+@pytest.mark.asyncio
+async def test_health_check_locked_state_both_breached(app, client):
+    mock_pool = MockHealthPool(50, 0.65, "success")
+    app.state.pool = mock_pool
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["system_state"] == "locked"
+    assert payload["data"]["warning_mode"] is False
+
+@pytest.mark.asyncio
+async def test_health_check_locked_state_zero_jobs(app, client):
+    mock_pool = MockHealthPool(0, 0.90, "success")
+    app.state.pool = mock_pool
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["system_state"] == "locked"
+
+@pytest.mark.asyncio
+async def test_health_check_locked_state_failed_ingest(app, client):
+    mock_pool = MockHealthPool(150, 0.90, "failure")
+    app.state.pool = mock_pool
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["system_state"] == "locked"
+
+@pytest.mark.asyncio
+async def test_health_check_locked_state_non_success_ingest(app, client):
+    mock_pool = MockHealthPool(150, 0.90, "running")
+    app.state.pool = mock_pool
+
+    response = await client.get("/api/v1/health")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["data"]["system_state"] == "locked"
 
 @pytest.mark.asyncio
 async def test_health_check_database_disconnected(app, client):

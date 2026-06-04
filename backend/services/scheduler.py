@@ -30,12 +30,26 @@ def get_ist_zone() -> ZoneInfo:
     return ZoneInfo("Asia/Kolkata")
 
 
-def _kill_criterion_payload(run_date: date, summary: dict[str, Any], corpus_size: int) -> dict[str, Any]:
+def _kill_criterion_payload(run_date: date, summary: dict[str, Any], corpus_size: int, eval_accuracy: float | None) -> dict[str, Any]:
     return {
         "run_date": run_date.isoformat(),
-        "week": run_date.isocalendar().week,
+        "week": run_date.isocalendar()[1],
         "status": summary.get("status"),
         "corpus_size": corpus_size,
+        "eval_accuracy": eval_accuracy,
+        "source_counts": summary.get("source_counts", {}),
+        "error_message": summary.get("error_message"),
+        "execution_time_seconds": summary.get("execution_time_seconds"),
+    }
+
+
+def _run_summary_payload(run_date: date, summary: dict[str, Any], corpus_size: int, eval_accuracy: float | None) -> dict[str, Any]:
+    return {
+        "run_date": run_date.isoformat(),
+        "week": run_date.isocalendar()[1],
+        "status": "warning",
+        "corpus_size": corpus_size,
+        "eval_accuracy": eval_accuracy,
         "source_counts": summary.get("source_counts", {}),
         "error_message": summary.get("error_message"),
         "execution_time_seconds": summary.get("execution_time_seconds"),
@@ -44,10 +58,12 @@ def _kill_criterion_payload(run_date: date, summary: dict[str, Any], corpus_size
 
 def _render_kill_email_html(payload: dict[str, Any]) -> str:
     csv_template = "url,title,company,location,raw_text,source_slug\nhttps://example.com,AI Engineer,Acme,Remote,Sample text,yc_waas"
+    eval_accuracy_str = f"{payload['eval_accuracy']}" if payload.get('eval_accuracy') is not None else 'none'
     return (
         "<h2>Kill criterion triggered</h2>"
         f"<p>Run date: {payload['run_date']}</p>"
         f"<p>Corpus size: {payload['corpus_size']}</p>"
+        f"<p>Evaluation accuracy: {eval_accuracy_str}</p>"
         f"<p>Status: {payload['status']}</p>"
         f"<p>Error: {payload['error_message'] or 'none'}</p>"
         "<h3>Manual CSV pivot template</h3>"
@@ -144,18 +160,19 @@ async def dispatch_due_kill_notifications(app: FastAPI) -> None:
                         )
 
 
-async def _record_weekly_report(conn, run_date: date, corpus_size: int, source_counts: dict[str, Any], report_html: str) -> None:
+async def _record_weekly_report(conn, run_date: date, corpus_size: int, source_counts: dict[str, Any], eval_accuracy: float | None, report_html: str) -> None:
     await conn.execute(
         """
-        INSERT INTO weekly_reports (run_date, corpus_size, per_source_counts, report_html)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO weekly_reports (run_date, corpus_size, per_source_counts, eval_accuracy, report_html)
+        VALUES (%s, %s, %s, %s, %s)
         ON CONFLICT (run_date) DO UPDATE
         SET corpus_size = EXCLUDED.corpus_size,
             per_source_counts = EXCLUDED.per_source_counts,
+            eval_accuracy = EXCLUDED.eval_accuracy,
             report_html = EXCLUDED.report_html,
             accessed_at = CURRENT_TIMESTAMP
         """,
-        (run_date, corpus_size, json.dumps(source_counts), report_html),
+        (run_date, corpus_size, json.dumps(source_counts), eval_accuracy, report_html),
     )
 
 
@@ -164,6 +181,15 @@ async def _count_corpus_size(conn) -> int:
         await cur.execute("SELECT COUNT(*) FROM jobs")
         result = await cur.fetchone()
         return int(result[0] if result else 0)
+
+
+async def _get_latest_eval_accuracy(conn) -> float | None:
+    async with conn.cursor() as cur:
+        await cur.execute(
+            "SELECT overall_f1 FROM evaluation_runs ORDER BY run_timestamp DESC, id DESC LIMIT 1"
+        )
+        row = await cur.fetchone()
+        return float(row[0]) if (row and row[0] is not None) else None
 
 
 async def _missed_two_saturdays(conn, run_date: date) -> bool:
@@ -192,6 +218,7 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
     summary: dict[str, Any] = {"status": "failure", "source_counts": {}, "error_message": None}
     source_counts: dict[str, Any] = {}
     corpus_size = 0
+    eval_accuracy = None
     missed_two_saturdays = False
     fatal_error: Exception | None = None
 
@@ -201,8 +228,7 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
 
         async with pool.connection() as conn:
             corpus_size = await _count_corpus_size(conn)
-            report_html = _render_weekly_nudge_html(run_date, corpus_size, source_counts)
-            await _record_weekly_report(conn, run_date, corpus_size, source_counts, report_html)
+            eval_accuracy = await _get_latest_eval_accuracy(conn)
             missed_two_saturdays = await _missed_two_saturdays(conn, run_date)
     except Exception as exc:
         fatal_error = exc
@@ -212,19 +238,46 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
             "source_counts": source_counts,
             "error_message": str(exc),
         }
+        try:
+            async with pool.connection() as conn:
+                corpus_size = await _count_corpus_size(conn)
+                eval_accuracy = await _get_latest_eval_accuracy(conn)
+        except Exception as db_exc:
+            logger.error("Failed to query DB metrics after ingestion failure", error=str(db_exc))
 
-    kill_fired = summary.get("status") != "success" or corpus_size < 100 or fatal_error is not None
+    check_accuracy = eval_accuracy if eval_accuracy is not None else 1.0
+    corpus_breached = corpus_size < 100
+    accuracy_breached = check_accuracy < 0.70
+
+    kill_fired = (corpus_breached and accuracy_breached) or summary.get("status") != "success" or fatal_error is not None
+    warning_mode = (corpus_breached != accuracy_breached) and summary.get("status") == "success" and fatal_error is None
+
     if kill_fired:
-        payload = _kill_criterion_payload(run_date, summary, corpus_size)
-        week_no = run_date.isocalendar().week
+        payload = _kill_criterion_payload(run_date, summary, corpus_size, eval_accuracy)
+        week_no = run_date.isocalendar()[1]
         artifact_path = _workspace_root() / f"kill-criterion-fired-{run_date.year}-{week_no:02d}.json"
-        artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        try:
+            artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        except Exception as exc:
+            logger.error("Failed to write kill criterion artifact", error=str(exc), path=str(artifact_path))
         # Dispatch asynchronously after a short delay to satisfy delayed handoff behavior.
         try:
             await _enqueue_kill_notification(pool, run_date, payload, delay_seconds=60)
         except Exception as exc:
             logger.error("Failed to persist kill notification", error=str(exc))
             await _send_kill_email(payload)
+    elif warning_mode:
+        payload = _run_summary_payload(run_date, summary, corpus_size, eval_accuracy)
+        week_no = run_date.isocalendar()[1]
+        artifact_path = _workspace_root() / f"run-summary-{run_date.year}-{week_no:02d}.json"
+        artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        async with pool.connection() as conn:
+            report_html = _render_weekly_nudge_html(run_date, corpus_size, source_counts)
+            await _record_weekly_report(conn, run_date, corpus_size, source_counts, eval_accuracy, report_html)
+    else:
+        async with pool.connection() as conn:
+            report_html = _render_weekly_nudge_html(run_date, corpus_size, source_counts)
+            await _record_weekly_report(conn, run_date, corpus_size, source_counts, eval_accuracy, report_html)
 
     if missed_two_saturdays:
         try:

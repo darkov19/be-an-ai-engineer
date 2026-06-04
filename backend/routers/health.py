@@ -20,7 +20,11 @@ async def health_check(request: Request):
                 "data": {
                     "status": "unhealthy",
                     "database": "disconnected",
-                    "timestamp": timestamp
+                    "timestamp": timestamp,
+                    "corpus_size": 0,
+                    "eval_accuracy": None,
+                    "system_state": "locked",
+                    "warning_mode": False
                 }
             }
         )
@@ -33,19 +37,50 @@ async def health_check(request: Request):
             # Connection check succeeded. Now run query.
             try:
                 async with conn.cursor() as cur:
-                    # Parameterized query to follow guidelines, even for static SELECT 1
-                    await cur.execute("SELECT %s", (1,))
-                    result = await cur.fetchone()
-                    if result and result[0] == 1:
-                        return {
-                            "data": {
-                                "status": "healthy",
-                                "database": "connected",
-                                "timestamp": timestamp
-                            }
-                        }
+                    # 1. Corpus size
+                    await cur.execute("SELECT COUNT(*) FROM jobs")
+                    row = await cur.fetchone()
+                    corpus_size = int(row[0]) if row else 0
+
+                    # 2. Latest evaluation F1
+                    await cur.execute("SELECT overall_f1 FROM evaluation_runs ORDER BY run_timestamp DESC, id DESC LIMIT 1")
+                    row = await cur.fetchone()
+                    eval_accuracy = float(row[0]) if (row and row[0] is not None) else None
+
+                    # 3. Latest ingestion run status
+                    await cur.execute("SELECT status FROM ingestion_runs ORDER BY run_timestamp DESC, id DESC LIMIT 1")
+                    row = await cur.fetchone()
+                    latest_ingest_status = row[0] if row else None
+
+                    check_accuracy = eval_accuracy if eval_accuracy is not None else 1.0
+                    corpus_breached = corpus_size < 100
+                    accuracy_breached = check_accuracy < 0.70
+
+                    latest_ingest_succeeded = latest_ingest_status == "success"
+                    if (
+                        corpus_size == 0
+                        or not latest_ingest_succeeded
+                        or (corpus_breached and accuracy_breached)
+                    ):
+                        system_state = "locked"
+                    elif corpus_breached != accuracy_breached:
+                        system_state = "warning"
                     else:
-                        raise psycopg.Error("Database returned unexpected result")
+                        system_state = "nominal"
+
+                    warning_mode = (system_state == "warning")
+
+                    return {
+                        "data": {
+                            "status": "healthy",
+                            "database": "connected",
+                            "timestamp": timestamp,
+                            "corpus_size": corpus_size,
+                            "eval_accuracy": eval_accuracy,
+                            "system_state": system_state,
+                            "warning_mode": warning_mode
+                        }
+                    }
             except Exception as query_exc:
                 # If a database query fails or raises an exception
                 logger.error("Database query failed during health check", error=str(query_exc))
@@ -66,7 +101,11 @@ async def health_check(request: Request):
                 "data": {
                     "status": "unhealthy",
                     "database": "disconnected",
-                    "timestamp": timestamp
+                    "timestamp": timestamp,
+                    "corpus_size": 0,
+                    "eval_accuracy": None,
+                    "system_state": "locked",
+                    "warning_mode": False
                 }
             }
         )
