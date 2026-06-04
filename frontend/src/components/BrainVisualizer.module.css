@@ -1,0 +1,334 @@
+.visualizerContainer {
+  position: relative;
+  width: 100%;
+  height: 320px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hud);
+  border-radius: 4px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  box-shadow: inset 0 0 20px hsla(180, 50%, 10%, 0.1);
+  backdrop-filter: blur(10px);
+}
+
+.volumetricGlow {
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, hsla(180, 100%, 50%, 0.08) 0%, transparent 70%);
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: blur(10px);
+}
+
+.perspectiveWrapper {
+  perspective: 800px;
+  transform-style: preserve-3d;
+  width: 100%;
+  height: 100%;
+  max-width: 400px;
+  max-height: 300px;
+}
+
+.preserve3dContainer {
+  transform-style: preserve-3d;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  transform: rotateY(0deg);
+}
+
+.rotatingMesh {
+  animation: rotateSkillMesh 18s linear infinite;
+}
+
+@keyframes rotateSkillMesh {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+.svgMesh {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+/* Horizontal scan sweep bar */
+.scanSweep {
+  animation: scanSweepAnimation 4s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes scanSweepAnimation {
+  0% {
+    y: -300px;
+  }
+  100% {
+    y: 300px;
+  }
+}
+
+.meshLine {
+  transition: stroke 0.25s var(--transition-snappy, cubic-bezier(0.16, 1, 0.3, 1)),
+              stroke-opacity 0.25s var(--transition-snappy, cubic-bezier(0.16, 1, 0.3, 1)),
+              stroke-width 0.25s var(--transition-snappy, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.nodeGroup {
+  cursor: pointer;
+  outline: none;
+}
+
+.nodeCircle {
+  transition: r 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              fill 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+              filter 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nodeLabel {
+  font-family: var(--font-mono);
+  fill: var(--text-secondary);
+  font-weight: 500;
+  letter-spacing: 0.05em;
+  pointer-events: none;
+  transition: fill 0.2s ease;
+  user-select: none;
+}
+
+.nodeGroup:hover .nodeLabel,
+.nodeGroup:focus .nodeLabel {
+  fill: var(--text-primary);
+  font-weight: 700;
+}
+
+.nodeProven .nodeCircle {
+  fill: var(--glow-green);
+  box-shadow: 0 0 10px var(--glow-green);
+}
+
+.nodeAnomaly .nodeCircle {
+  fill: var(--glow-magenta);
+  animation: pulseNode 2s infinite;
+}
+
+.nodeAnomaly .nodeLabel {
+  fill: var(--glow-magenta);
+  text-shadow: 0 0 4px hsla(325, 100%, 55%, 0.2);
+}
+
+@keyframes pulseNode {
+  0%, 100% {
+    filter: drop-shadow(0 0 2px var(--glow-magenta)) brightness(1);
+  }
+  50% {
+    filter: drop-shadow(0 0 8px var(--glow-magenta)) brightness(1.2);
+  }
+}
+
+.pulseRing {
+  transform-origin: center;
+  animation: rippleRing 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes rippleRing {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+/* Floating interactive diagnostic tooltip */
+.tooltip {
+  position: absolute;
+  z-index: 100;
+  background: hsla(240, 16%, 3%, 0.95);
+  border: 1px solid var(--border-hud);
+  border-radius: 4px;
+  padding: 12px;
+  width: 190px;
+  font-family: var(--font-mono);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 12px hsla(180, 100%, 50%, 0.15);
+  pointer-events: auto;
+  border-left: 3px solid var(--glow-cyan);
+  animation: fadeIn 0.15s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tooltipHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-hud);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+
+.tooltipIndicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.tooltipIndicator[data-status="proven"] {
+  background: var(--glow-green);
+  box-shadow: 0 0 6px var(--glow-green);
+}
+
+.tooltipIndicator[data-status="anomaly"] {
+  background: var(--glow-magenta);
+  box-shadow: 0 0 6px var(--glow-magenta);
+  animation: alertFlicker 1.5s infinite;
+}
+
+@keyframes alertFlicker {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.tooltipTitle {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.tooltipDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.tooltipRow {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.65rem;
+  letter-spacing: 0.02em;
+}
+
+.tooltipRow span:first-child {
+  color: var(--text-secondary);
+}
+
+.tooltipStatusText[data-status="proven"] {
+  color: var(--glow-green);
+}
+
+.tooltipStatusText[data-status="anomaly"] {
+  color: var(--glow-magenta);
+}
+
+.tooltipValue {
+  color: var(--glow-cyan);
+}
+
+.tooltipCta {
+  width: 100%;
+  background: var(--glow-magenta);
+  color: var(--bg-cosmic);
+  border: none;
+  border-radius: 2px;
+  padding: 6px;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+  box-shadow: 0 0 8px hsla(325, 100%, 55%, 0.2);
+}
+
+.tooltipCta:hover {
+  background: hsl(325, 100%, 65%);
+  box-shadow: 0 0 12px hsla(325, 100%, 55%, 0.4);
+  transform: translateY(-1px);
+}
+
+.tooltipCta:disabled {
+  background: hsla(240, 10%, 20%, 0.5);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Legend styling */
+.legend {
+  position: absolute;
+  bottom: 8px;
+  left: 12px;
+  right: 12px;
+  display: flex;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+}
+
+.legendDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dotProven {
+  background: var(--glow-green);
+  box-shadow: 0 0 4px var(--glow-green);
+}
+
+.dotNominal {
+  background: var(--text-secondary);
+}
+
+.dotAnomaly {
+  background: var(--glow-magenta);
+  box-shadow: 0 0 4px var(--glow-magenta);
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .rotatingMesh,
+  .scanSweep,
+  .nodeAnomaly .nodeCircle,
+  .pulseRing,
+  .tooltipIndicator[data-status="anomaly"] {
+    animation: none !important;
+  }
+}
+
+.staticMode .scanSweep,
+.staticMode .rotatingMesh,
+.staticMode .pulseRing,
+.staticMode .nodeAnomaly .nodeCircle {
+  animation: none !important;
+}

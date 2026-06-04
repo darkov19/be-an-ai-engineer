@@ -1,0 +1,183 @@
+.chartContainer {
+  width: 100%;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-hud);
+  border-radius: 4px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: inset 0 0 20px hsla(180, 50%, 10%, 0.05);
+  backdrop-filter: blur(10px);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid var(--border-hud);
+  padding-bottom: 8px;
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tag {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-secondary);
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.title {
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-primary);
+}
+
+.statusDisplay {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+}
+
+.statusLabel {
+  color: var(--text-secondary);
+}
+
+.statusVal {
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.greenText {
+  color: var(--glow-green);
+  text-shadow: 0 0 6px hsla(145, 80%, 45%, 0.4);
+}
+
+.cyanText {
+  color: var(--glow-cyan);
+  text-shadow: 0 0 6px hsla(180, 100%, 50%, 0.4);
+}
+
+.magentaText {
+  color: var(--glow-magenta);
+  text-shadow: 0 0 6px hsla(325, 100%, 55%, 0.4);
+}
+
+.svgWrapper {
+  position: relative;
+  width: 100%;
+  height: 120px;
+  background: hsla(240, 16%, 1%, 0.4);
+  border: 1px solid hsla(180, 50%, 20%, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+/* Dotted grid panning animation */
+.panningGrid {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-image: radial-gradient(var(--border-hud) 1px, transparent 1px);
+  background-size: 16px 16px;
+  opacity: 0.05;
+  pointer-events: none;
+  animation: panGridAnimation 10s linear infinite;
+}
+
+@keyframes panGridAnimation {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: -160px 0;
+  }
+}
+
+.svgElement {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.wavePath {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.4s ease;
+}
+
+.glowGreen {
+  animation: breatheGreen 4s ease-in-out infinite;
+}
+
+.glowCyan {
+  animation: breatheCyan 2s ease-in-out infinite;
+}
+
+.glowMagenta {
+  animation: breatheMagenta 1s ease-in-out infinite;
+}
+
+@keyframes breatheGreen {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+@keyframes breatheCyan {
+  0%, 100% { opacity: 0.9; }
+  50% { opacity: 1; }
+}
+
+@keyframes breatheMagenta {
+  0%, 100% { opacity: 0.8; }
+  50% { opacity: 1; }
+}
+
+.footer {
+  display: flex;
+  justify-content: space-between;
+  border-top: 1px dashed var(--border-hud);
+  padding-top: 8px;
+  font-family: var(--font-sans);
+  font-size: 0.7rem;
+}
+
+.metaItem {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.metaLabel {
+  color: var(--text-secondary);
+}
+
+.metaValMono {
+  font-family: var(--font-mono);
+  color: var(--glow-purple);
+  font-weight: 700;
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .panningGrid {
+    animation: none !important;
+  }
+  .glowGreen,
+  .glowCyan,
+  .glowMagenta {
+    animation: none !important;
+  }
+}

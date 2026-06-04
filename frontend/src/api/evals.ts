@@ -19,8 +19,8 @@ export interface EvalRun {
 
 export interface DetailedDiff {
   eval_id: string;
-  expected: Record<string, any>;
-  actual: Record<string, any> | null;
+  expected: Record<string, unknown>;
+  actual: Record<string, unknown> | null;
   matching_status: Record<string, boolean>;
   mismatched_fields: string[];
   metrics: Record<string, { precision: number; recall: number; f1: number }>;

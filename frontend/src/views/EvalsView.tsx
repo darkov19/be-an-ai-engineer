@@ -127,15 +127,16 @@ export const EvalsView: React.FC = () => {
   };
 
   // Format Helper for cells (lists, enums, objects)
-  const formatValue = (val: any) => {
+  const formatValue = (val: unknown) => {
     if (val === null || val === undefined) return 'N/A';
     if (Array.isArray(val)) {
       return val.length > 0 ? val.join(', ') : 'None';
     }
     if (typeof val === 'object') {
-      if (val.kind === 'not_disclosed') return 'Not Disclosed';
-      if (val.kind === 'disclosed') {
-        return `${val.currency || 'USD'} ${val.min_amount ?? 0} - ${val.max_amount ?? 0} per ${val.period || 'year'}`;
+      const obj = val as Record<string, unknown>;
+      if (obj['kind'] === 'not_disclosed') return 'Not Disclosed';
+      if (obj['kind'] === 'disclosed') {
+        return `${String(obj['currency'] || 'USD')} ${String(obj['min_amount'] ?? 0)} - ${String(obj['max_amount'] ?? 0)} per ${String(obj['period'] || 'year')}`;
       }
       return JSON.stringify(val);
     }
@@ -167,8 +168,8 @@ export const EvalsView: React.FC = () => {
   // Custom cell formatter with Orange mismatch styling
   const renderFieldCell = (
     field: string,
-    expected: any,
-    actual: any,
+    expected: unknown,
+    actual: unknown,
     matchingStatus: Record<string, boolean>
   ) => {
     const isMatch = matchingStatus[field] === true;

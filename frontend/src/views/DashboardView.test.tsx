@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
 import { DashboardView } from './DashboardView';
 
 // Mock fetch globally
@@ -9,13 +9,43 @@ globalThis.fetch = mockFetch;
 describe('DashboardView - Quality Gate Warning and Lock UI', () => {
   beforeEach(() => {
     mockFetch.mockReset();
-    // Default mock response for profile fetch
-    mockFetch.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        id: 1,
-        updated_at: new Date().toISOString(), // fresh profile
-      }),
+    // Realistic conditional mock responses
+    mockFetch.mockImplementation((url) => {
+      if (url === '/api/v1/profiles/current') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 1,
+            skills: ['Python', 'FastAPI'],
+            updated_at: new Date().toISOString(), // fresh profile
+          }),
+        });
+      }
+      if (url === '/api/v1/jobs/analytics') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: {
+              geo_segments: {
+                us_eu_remote: {
+                  skill_gap: [
+                    { skill: 'RAG', market_frequency: 0.8 },
+                    { skill: 'pgvector', market_frequency: 0.7 }
+                  ]
+                },
+                india_ai_product: {
+                  skill_gap: []
+                }
+              }
+            }
+          }),
+        });
+      }
+      // Default fallback
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ ok: true }),
+      });
     });
   });
 
@@ -111,5 +141,74 @@ describe('DashboardView - Quality Gate Warning and Lock UI', () => {
     // Standard panels should be blocked / absent
     expect(screen.queryByText(/SYSTEM DIAGNOSTICS/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/SYSTEM TERMINAL LOGS/i)).not.toBeInTheDocument();
+  });
+
+  it('renders BrainVisualizer and TelemetryChart widgets and supports resolving anomalies', async () => {
+    const healthData = {
+      data: {
+        status: 'healthy',
+        database: 'connected',
+        timestamp: '2026-06-04T12:00:00Z',
+        corpus_size: 150,
+        eval_accuracy: 0.85,
+        system_state: 'nominal',
+        warning_mode: false,
+      },
+    };
+
+    render(<DashboardView health={healthData} loading={false} />);
+
+    // Wait for mock fetch triggers
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/profiles/current');
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/jobs/analytics');
+    });
+
+    // Verify BrainVisualizer is rendered by checking its title/legend
+    expect(screen.getByText(/COGNITIVE SKILL NODE DIAGNOSTICS/i)).toBeInTheDocument();
+    expect(screen.getAllByText("PROVEN")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("NOMINAL")[0]).toBeInTheDocument();
+    expect(screen.getAllByText("ANOMALY")[0]).toBeInTheDocument();
+
+    // Verify TelemetryChart is rendered
+    expect(screen.getByText(/HEMODYNAMIC LEARNING WAVE/i)).toBeInTheDocument();
+
+    // Verify Active Directives panel is rendered
+    expect(screen.getByText(/ACTIVE PATHWAY DIRECTIVES/i)).toBeInTheDocument();
+    expect(screen.getByText(/NO ACTIVE DIRECTIVES LOADED/i)).toBeInTheDocument();
+
+    const ragNode = screen.getByRole('button', { name: /Skill: RAG\. Status: anomaly/i });
+    fireEvent.mouseEnter(ragNode);
+    fireEvent.click(await screen.findByRole('button', { name: /\[RESOLVE ANOMALY\]/i }));
+
+    expect(screen.getAllByText(/RAG/i).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/ENTER GIT COMMIT HASH/i)).toBeInTheDocument();
+    expect(screen.getByText(/Directive status: PENDING COMMIT LINK/i)).toBeInTheDocument();
+  });
+
+  it('allows keyboard users to resolve anomaly nodes', async () => {
+    const healthData = {
+      data: {
+        status: 'healthy',
+        database: 'connected',
+        timestamp: '2026-06-04T12:00:00Z',
+        corpus_size: 150,
+        eval_accuracy: 0.85,
+        system_state: 'nominal',
+        warning_mode: false,
+      },
+    };
+
+    render(<DashboardView health={healthData} loading={false} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/jobs/analytics');
+    });
+
+    const pgvectorNode = screen.getByRole('button', { name: /Skill: pgvector\. Status: anomaly/i });
+    fireEvent.keyDown(pgvectorNode, { key: 'Enter' });
+
+    expect(screen.getAllByText(/PGVECTOR/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Accepted active directive to resolve anomaly: pgvector/i)).toBeInTheDocument();
   });
 });

@@ -9,7 +9,7 @@ vi.mock('recharts', async (importOriginal) => {
   const original = await importOriginal<typeof import('recharts')>();
   return {
     ...original,
-    ResponsiveContainer: ({ children }: any) => <div data-testid="recharts-responsive-container">{children}</div>,
+    ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div data-testid="recharts-responsive-container">{children}</div>,
   };
 });
 
