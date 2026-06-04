@@ -440,12 +440,12 @@ So that extraction is structured, audit-logged, and fails safely if the proxy is
 ### Story 4.2: Labeled Eval Set Management & Accuracy Audits
 
 As a developer,
-I want a database migration `V007__add_evals.sql` that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
+I want a database migration after the Story 4.1 extraction-field migration, expected as `V008__add_evals.sql`, that defines tables `evaluation_runs` and `eval_postings`, along with backend logic to compute per-field precision, recall, and regression detection against a 20-sample hand-labeled ground-truth evaluation set,
 So that extraction accuracy is measured mathematically and regression is flagged automatically.
 
 **Acceptance Criteria:**
 
-**Given** a database migration `backend/db/migrations/V007__add_evals.sql`
+**Given** a database migration `backend/db/migrations/V008__add_evals.sql` unless `V008` is already taken
 **When** migrations are run
 **Then** tables `evaluation_runs` and `eval_postings` are created
 **And** `backend/services/evaluator.py` can load a 20-sample hand-labeled ground-truth dataset (10 training / 10 held-out) with known classifications
@@ -623,6 +623,5 @@ So that hiring managers can verify my consistent job-search activity in a 90-sec
 **Then** the UI renders a publicly accessible log of all Loop B weekly metrics (applications, interviews, voice notes, LinkedIn posts) loaded from `loop-b-log.md` or a database
 **And** a link is provided to open `loop-b-log.md` directly in the GitHub repository
 **And** each weekly row includes links to public commits or LinkedIn posts, proving consistent build-in-public progression.
-
 
 
