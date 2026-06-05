@@ -103,6 +103,7 @@ async def test_run_weekly_ingestion_skips_notifications_when_healthy():
     with (
         patch.object(scheduler_service, "run_full_ingestion", AsyncMock(return_value={"status": "success", "source_counts": {"hn": 5}})),
         patch.object(scheduler_service, "send_email", MagicMock()),
+        patch.object(scheduler_service, "_publish_weekly_static_assets", AsyncMock()),
         patch.object(scheduler_service, "datetime") as mock_datetime,
     ):
         mock_datetime.now.return_value = MagicMock(date=lambda: run_date)
@@ -163,6 +164,7 @@ async def test_run_weekly_ingestion_warning_writes_summary_without_notification(
     with (
         patch.object(scheduler_service, "run_full_ingestion", AsyncMock(return_value={"status": "success", "source_counts": {"hn": 5}})),
         patch.object(scheduler_service, "_workspace_root", return_value=tmp_path),
+        patch.object(scheduler_service, "_publish_weekly_static_assets", AsyncMock()),
         patch.object(scheduler_service, "datetime") as mock_datetime,
     ):
         mock_datetime.now.return_value = MagicMock(date=lambda: run_date)
@@ -182,6 +184,80 @@ async def test_run_weekly_ingestion_warning_writes_summary_without_notification(
         "notification_outbox" in (call.args[0] if call.args else "")
         for call in mock_conn.execute.await_args_list
     )
+
+
+@pytest.mark.asyncio
+async def test_run_weekly_ingestion_publishes_static_assets_for_nominal_run():
+    run_date = date(2026, 5, 30)
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchone = AsyncMock(side_effect=[(150,), (0.9,), (1,)])
+    mock_cursor.__aenter__.return_value = mock_cursor
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_pool = MagicMock()
+    mock_pool.connection.return_value = MockPoolConnectionCtx(mock_conn)
+    app = SimpleNamespace(state=SimpleNamespace(pool=mock_pool))
+
+    with (
+        patch.object(scheduler_service, "run_full_ingestion", AsyncMock(return_value={"status": "success", "source_counts": {"hn": 5}})),
+        patch.object(scheduler_service, "_publish_weekly_static_assets", AsyncMock()) as mock_publish,
+        patch.object(scheduler_service, "datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = MagicMock(date=lambda: run_date)
+        await scheduler_service.run_weekly_ingestion(app)
+
+    mock_publish.assert_awaited_once_with(mock_conn, run_date)
+
+
+@pytest.mark.asyncio
+async def test_run_weekly_ingestion_publishes_static_assets_for_warning_run(tmp_path: Path):
+    run_date = date(2026, 5, 30)
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchone = AsyncMock(side_effect=[(50,), (0.85,), (1,)])
+    mock_cursor.__aenter__.return_value = mock_cursor
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_pool = MagicMock()
+    mock_pool.connection.return_value = MockPoolConnectionCtx(mock_conn)
+    app = SimpleNamespace(state=SimpleNamespace(pool=mock_pool))
+
+    with (
+        patch.object(scheduler_service, "run_full_ingestion", AsyncMock(return_value={"status": "success", "source_counts": {"hn": 5}})),
+        patch.object(scheduler_service, "_workspace_root", return_value=tmp_path),
+        patch.object(scheduler_service, "_publish_weekly_static_assets", AsyncMock()) as mock_publish,
+        patch.object(scheduler_service, "datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = MagicMock(date=lambda: run_date)
+        await scheduler_service.run_weekly_ingestion(app)
+
+    mock_publish.assert_awaited_once_with(mock_conn, run_date)
+
+
+@pytest.mark.asyncio
+async def test_run_weekly_ingestion_does_not_publish_static_assets_for_locked_run(tmp_path: Path):
+    run_date = date(2026, 5, 30)
+    mock_cursor = AsyncMock()
+    mock_cursor.fetchone = AsyncMock(side_effect=[(50,), (0.65,), (1,)])
+    mock_cursor.__aenter__.return_value = mock_cursor
+    mock_conn = MagicMock()
+    mock_conn.execute = AsyncMock()
+    mock_conn.cursor.return_value = mock_cursor
+    mock_pool = MagicMock()
+    mock_pool.connection.return_value = MockPoolConnectionCtx(mock_conn)
+    app = SimpleNamespace(state=SimpleNamespace(pool=mock_pool))
+
+    with (
+        patch.object(scheduler_service, "run_full_ingestion", AsyncMock(return_value={"status": "success", "source_counts": {"hn": 5}})),
+        patch.object(scheduler_service, "_workspace_root", return_value=tmp_path),
+        patch.object(scheduler_service, "_publish_weekly_static_assets", AsyncMock()) as mock_publish,
+        patch.object(scheduler_service, "datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = MagicMock(date=lambda: run_date)
+        await scheduler_service.run_weekly_ingestion(app)
+
+    mock_publish.assert_not_awaited()
 
 
 @pytest.mark.asyncio

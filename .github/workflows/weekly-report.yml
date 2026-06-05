@@ -1,0 +1,120 @@
+name: Weekly Public Report
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_date:
+        description: "Optional report run date in YYYY-MM-DD format"
+        required: false
+  schedule:
+    - cron: "30 2 * * 6"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: |
+          python -m venv backend/venv
+          backend/venv/bin/pip install -r backend/requirements.txt
+          npm ci
+          cd frontend && npm ci
+
+      - name: Run report publishing tests
+        run: |
+          backend/venv/bin/pytest backend/tests/services/test_report_publisher.py backend/tests/scripts/test_publish_weekly_report.py backend/tests/services/test_scheduler.py
+
+      - name: Generate static report assets
+        id: publish
+        run: |
+          if [ -n "${{ github.event.inputs.run_date }}" ]; then
+            backend/venv/bin/python -m backend.scripts.publish_weekly_report --date "${{ github.event.inputs.run_date }}" --commit-sha "$GITHUB_SHA" | tee publish-result.log
+          else
+            backend/venv/bin/python -m backend.scripts.publish_weekly_report --commit-sha "$GITHUB_SHA" | tee publish-result.log
+          fi
+          PUBLISH_RESULT="$(tail -n 1 publish-result.log)"
+          echo "$PUBLISH_RESULT"
+          echo "slug=$(python -c 'import json,sys; print(json.load(sys.stdin)["slug"])' <<< "$PUBLISH_RESULT")" >> "$GITHUB_OUTPUT"
+          echo "report_path=$(python -c 'import json,sys; print(json.load(sys.stdin)["report_path"])' <<< "$PUBLISH_RESULT")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify frontend static build
+        run: |
+          cd frontend
+          npm run build
+          test -f dist/archive/index.html
+          test -n "$(find dist/reports -path '*/index.html' -print -quit)"
+          test -n "$(find dist/reports -name 'og.png' -print -quit)"
+
+      - name: Commit generated public artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add frontend/public/archive frontend/public/reports
+          git diff --cached --quiet || { git commit -m "Publish weekly report artifacts" && git push; }
+
+      - name: Deploy to Vercel
+        id: deploy
+        run: |
+          npm install --global vercel@latest
+          DEPLOYMENT_URL="$(vercel deploy --prod --yes --token "$VERCEL_TOKEN")"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Record deployment URL metadata
+        id: publish_metadata
+        run: |
+          if [ -n "${{ github.event.inputs.run_date }}" ]; then
+            backend/venv/bin/python -m backend.scripts.publish_weekly_report --date "${{ github.event.inputs.run_date }}" --deployment-url "${{ steps.deploy.outputs.deployment_url }}" --commit-sha "$GITHUB_SHA" | tee publish-metadata-result.log
+          else
+            backend/venv/bin/python -m backend.scripts.publish_weekly_report --deployment-url "${{ steps.deploy.outputs.deployment_url }}" --commit-sha "$GITHUB_SHA" | tee publish-metadata-result.log
+          fi
+          PUBLISH_RESULT="$(tail -n 1 publish-metadata-result.log)"
+          echo "$PUBLISH_RESULT"
+          echo "slug=$(python -c 'import json,sys; print(json.load(sys.stdin)["slug"])' <<< "$PUBLISH_RESULT")" >> "$GITHUB_OUTPUT"
+          echo "report_path=$(python -c 'import json,sys; print(json.load(sys.stdin)["report_path"])' <<< "$PUBLISH_RESULT")" >> "$GITHUB_OUTPUT"
+
+      - name: Verify metadata-enriched static build
+        run: |
+          cd frontend
+          npm run build
+          test -f dist/archive/index.html
+          test -f "dist${{ steps.publish_metadata.outputs.report_path }}"
+          test -f "dist/reports/${{ steps.publish_metadata.outputs.slug }}/og.png"
+
+      - name: Commit deployment metadata artifacts
+        run: |
+          git add frontend/public/archive frontend/public/reports
+          git diff --cached --quiet || { git commit -m "Record weekly report deployment metadata" && git push; }
+
+      - name: Redeploy metadata-enriched artifacts
+        id: deploy_final
+        run: |
+          DEPLOYMENT_URL="$(vercel deploy --prod --yes --token "$VERCEL_TOKEN")"
+          echo "deployment_url=$DEPLOYMENT_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Health check public URLs
+        run: |
+          ARCHIVE_URL="${{ steps.deploy_final.outputs.deployment_url }}/archive/"
+          REPORT_PATH="${{ steps.publish_metadata.outputs.report_path }}"
+          REPORT_URL="${{ steps.deploy_final.outputs.deployment_url }}${REPORT_PATH}"
+          curl --fail --silent --show-error "$ARCHIVE_URL" >/dev/null
+          curl --fail --silent --show-error "$REPORT_URL" >/dev/null

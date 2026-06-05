@@ -11,6 +11,7 @@ from apscheduler.triggers.interval import IntervalTrigger
 from fastapi import FastAPI
 
 from backend.config import settings
+from backend.services import report_publisher
 from backend.services.parser import run_full_ingestion
 from backend.utils.email import send_email
 
@@ -160,19 +161,78 @@ async def dispatch_due_kill_notifications(app: FastAPI) -> None:
                         )
 
 
-async def _record_weekly_report(conn, run_date: date, corpus_size: int, source_counts: dict[str, Any], eval_accuracy: float | None, report_html: str) -> None:
+async def _record_weekly_report(
+    conn,
+    run_date: date,
+    corpus_size: int,
+    source_counts: dict[str, Any],
+    eval_accuracy: float | None,
+    report_html: str,
+    snapshot: dict[str, Any] | None = None,
+) -> None:
+    snapshot = snapshot or report_publisher.build_scheduler_snapshot(run_date, corpus_size, source_counts, eval_accuracy, {})
     await conn.execute(
         """
-        INSERT INTO weekly_reports (run_date, corpus_size, per_source_counts, eval_accuracy, report_html)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO weekly_reports (
+            run_date, corpus_size, per_source_counts, eval_accuracy, report_html,
+            geo_us_eu, geo_india, report_slug, experience_distribution,
+            profile_fit_deltas, coverage_diagnostics, accountability_summary,
+            profile_freshness, snapshot
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (run_date) DO UPDATE
         SET corpus_size = EXCLUDED.corpus_size,
             per_source_counts = EXCLUDED.per_source_counts,
             eval_accuracy = EXCLUDED.eval_accuracy,
             report_html = EXCLUDED.report_html,
+            geo_us_eu = EXCLUDED.geo_us_eu,
+            geo_india = EXCLUDED.geo_india,
+            report_slug = EXCLUDED.report_slug,
+            experience_distribution = EXCLUDED.experience_distribution,
+            profile_fit_deltas = EXCLUDED.profile_fit_deltas,
+            coverage_diagnostics = EXCLUDED.coverage_diagnostics,
+            accountability_summary = EXCLUDED.accountability_summary,
+            profile_freshness = EXCLUDED.profile_freshness,
+            snapshot = EXCLUDED.snapshot,
             accessed_at = CURRENT_TIMESTAMP
         """,
-        (run_date, corpus_size, json.dumps(source_counts), eval_accuracy, report_html),
+        (
+            run_date,
+            corpus_size,
+            json.dumps(source_counts),
+            eval_accuracy,
+            report_html,
+            json.dumps(snapshot.get("geo_us_eu", {})),
+            json.dumps(snapshot.get("geo_india", {})),
+            snapshot.get("report_slug"),
+            json.dumps(snapshot.get("experience_distribution", {})),
+            json.dumps(snapshot.get("profile_fit_deltas", {})),
+            json.dumps(snapshot.get("coverage_diagnostics", {})),
+            json.dumps(snapshot.get("accountability_summary", {})),
+            json.dumps(snapshot.get("profile_freshness", {})),
+            json.dumps(snapshot),
+        ),
+    )
+
+
+async def _publish_weekly_static_assets(conn, run_date: date) -> None:
+    snapshot = await report_publisher.load_weekly_report_snapshot(conn, run_date)
+    archive_rows = await report_publisher.load_archive_rows(conn)
+    output_root = _workspace_root() / "frontend" / "public"
+    paths = report_publisher.write_report_assets(snapshot, output_root, archive_rows=archive_rows)
+    await conn.execute(
+        """
+        UPDATE weekly_reports
+        SET report_path = %s,
+            og_image_path = %s,
+            published_at = CURRENT_TIMESTAMP
+        WHERE run_date = %s
+        """,
+        (
+            f"/{paths['report_html'].relative_to(output_root).as_posix()}",
+            f"/{paths['og_image'].relative_to(output_root).as_posix()}",
+            run_date,
+        ),
     )
 
 
@@ -221,6 +281,7 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
     eval_accuracy = None
     missed_two_saturdays = False
     fatal_error: Exception | None = None
+    report_html_for_nudge: str | None = None
 
     try:
         summary = await run_full_ingestion(pool, config=None)
@@ -279,12 +340,24 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
         artifact_path = _workspace_root() / f"run-summary-{run_date.year}-{week_no:02d}.json"
         artifact_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         async with pool.connection() as conn:
-            report_html = _render_weekly_nudge_html(run_date, corpus_size, source_counts)
-            await _record_weekly_report(conn, run_date, corpus_size, source_counts, eval_accuracy, report_html)
+            snapshot = report_publisher.build_scheduler_snapshot(run_date, corpus_size, source_counts, eval_accuracy, summary)
+            report_html = report_publisher.render_weekly_report_html(snapshot)
+            report_html_for_nudge = report_html
+            await _record_weekly_report(conn, run_date, corpus_size, source_counts, eval_accuracy, report_html, snapshot)
+            try:
+                await _publish_weekly_static_assets(conn, run_date)
+            except Exception as exc:
+                logger.error("Weekly report static publish failed", error=str(exc), run_date=run_date.isoformat())
     else:
         async with pool.connection() as conn:
-            report_html = _render_weekly_nudge_html(run_date, corpus_size, source_counts)
-            await _record_weekly_report(conn, run_date, corpus_size, source_counts, eval_accuracy, report_html)
+            snapshot = report_publisher.build_scheduler_snapshot(run_date, corpus_size, source_counts, eval_accuracy, summary)
+            report_html = report_publisher.render_weekly_report_html(snapshot)
+            report_html_for_nudge = report_html
+            await _record_weekly_report(conn, run_date, corpus_size, source_counts, eval_accuracy, report_html, snapshot)
+            try:
+                await _publish_weekly_static_assets(conn, run_date)
+            except Exception as exc:
+                logger.error("Weekly report static publish failed", error=str(exc), run_date=run_date.isoformat())
 
     if missed_two_saturdays:
         try:
@@ -292,7 +365,7 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
                 to=settings.alert_recipient_email,
                 from_email="onboarding@resend.dev",
                 subject="Two Saturdays missed — here's your report.",
-                html=_render_weekly_nudge_html(run_date, corpus_size, source_counts),
+                html=report_html_for_nudge or _render_weekly_nudge_html(run_date, corpus_size, source_counts),
             )
         except Exception as exc:
             logger.warning("Failed to send missed-saturday nudge email", error=str(exc))
