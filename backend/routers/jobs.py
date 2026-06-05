@@ -519,3 +519,64 @@ async def get_jobs_analytics(request: Request):
                 "detail": "Database query execution failure.",
             },
         )
+
+
+@router.get("/company/{company_slug}")
+async def get_company_fingerprint(request: Request, company_slug: str):
+    import re
+    if not re.fullmatch(r"[a-z0-9-]+", company_slug):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "error": True,
+                "code": "INVALID_COMPANY_SLUG",
+                "detail": "Company slug must contain only lowercase alphanumeric characters and dashes."
+            }
+        )
+
+    try:
+        pool = getattr(request.app.state, "pool", None)
+        if pool is None:
+            raise RuntimeError("Database pool not initialized")
+
+        async with pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                await cur.execute(
+                    """
+                    SELECT company_slug, company_name, role_archetypes, top_technologies, llm_observation, updated_at
+                    FROM company_fingerprints
+                    WHERE company_slug = %s
+                    """,
+                    (company_slug,)
+                )
+                row = await cur.fetchone()
+
+                if not row:
+                    return JSONResponse(
+                        status_code=404,
+                        content={
+                            "error": True,
+                            "code": "COMPANY_NOT_FOUND",
+                            "detail": f"Company fingerprint for slug '{company_slug}' not found."
+                        }
+                    )
+
+                return {
+                    "company_slug": row["company_slug"],
+                    "company_name": row["company_name"],
+                    "role_archetypes": row["role_archetypes"],
+                    "top_technologies": row["top_technologies"],
+                    "llm_observation": row["llm_observation"],
+                    "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None
+                }
+
+    except Exception as exc:
+        logger.error("Failed to retrieve company fingerprint from database", company_slug=company_slug, error=str(exc))
+        return JSONResponse(
+            status_code=500,
+            content={
+                "error": True,
+                "code": "INTERNAL_SERVER_ERROR",
+                "detail": "Database query execution failure."
+            }
+        )

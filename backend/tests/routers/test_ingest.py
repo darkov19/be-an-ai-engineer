@@ -100,8 +100,9 @@ async def test_run_ingestion_task_success():
 
     mock_summary = {"status": "success", "source_counts": {}, "execution_time_seconds": 1.5}
 
-    with patch("backend.routers.ingest.run_full_ingestion", new_callable=AsyncMock, return_value=mock_summary):
-        await run_ingestion_task(task_id, mock_pool, None)
+    with patch("backend.routers.ingest.run_full_ingestion", new_callable=AsyncMock, return_value=mock_summary), \
+         patch("backend.scripts.precompute_fingerprints.precompute_company_fingerprint", new_callable=AsyncMock) as mock_precompute:
+        await run_ingestion_task(task_id, mock_pool, None, company_slug="stripe")
 
         # Allow the event loop to process scheduled call_soon_threadsafe callbacks
         await asyncio.sleep(0.01)
@@ -119,6 +120,7 @@ async def test_run_ingestion_task_success():
         assert logs[1]["event"] == "Background ingestion task completed successfully"
         assert logs[2]["control_type"] == "completed"
         assert logs[2]["summary"] == mock_summary
+        mock_precompute.assert_awaited_once_with(mock_pool, "stripe")
 
     task_manager.cleanup(task_id)
 

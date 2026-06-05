@@ -8,6 +8,7 @@ type ScanState = 'idle' | 'scanning' | 'completed' | 'failed';
 export const IngestionView: React.FC = () => {
   const [scanState, setScanState] = useState<ScanState>('idle');
   const [showTimeoutBanner, setShowTimeoutBanner] = useState(false);
+  const [companySlug, setCompanySlug] = useState<string>('stripe');
   const [hudFeedback, setHudFeedback] = useState<string>('');
   const [hudState, setHudState] = useState<'idle' | 'compiling' | 'saved' | 'error'>('idle');
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -161,7 +162,7 @@ export const IngestionView: React.FC = () => {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({}),
+        body: JSON.stringify({ company_slug: companySlug.trim() || undefined }),
         signal: controller.signal,
       });
 
@@ -270,6 +271,19 @@ export const IngestionView: React.FC = () => {
     setShowTimeoutBanner(false);
   };
 
+  const loadOfflineFallback = async () => {
+    const rawSlug = companySlug.trim().toLowerCase();
+    const slug = /^[a-z0-9-]+$/.test(rawSlug) ? rawSlug : 'stripe';
+    const cachedPath = `/cached-fingerprints/${encodeURIComponent(slug)}.html?demo=true`;
+
+    try {
+      const res = await fetch(`/cached-fingerprints/${encodeURIComponent(slug)}.html`, { method: 'HEAD' });
+      window.location.href = res.ok ? cachedPath : `/company/${encodeURIComponent(slug)}?demo=true`;
+    } catch {
+      window.location.href = `/company/${encodeURIComponent(slug)}?demo=true`;
+    }
+  };
+
   const getLedClass = () => {
     switch (scanState) {
       case 'scanning':
@@ -303,6 +317,12 @@ export const IngestionView: React.FC = () => {
           <div className={viewStyles.timeoutBanner} role="alert">
             <span>[TIMEOUT DETECTED - PARSER OFFLINE]</span>
             <div className={viewStyles.bannerControls}>
+              <button
+                onClick={loadOfflineFallback}
+                className={viewStyles.btnBanner}
+              >
+                [LOAD OFFLINE FALLBACK CACHE]
+              </button>
               <button onClick={startRemoteScan} className={viewStyles.btnBanner}>
                 RETRY
               </button>
@@ -318,6 +338,19 @@ export const IngestionView: React.FC = () => {
 
         <ConsolePanel title="INGESTION COCKPIT" glowColor="cyan">
           <div className={viewStyles.scanSection}>
+            <div className={viewStyles.targetCompanySelector}>
+              <label htmlFor="company-slug-input" className={viewStyles.companyLabel}>TARGET COMPANY SLUG:</label>
+              <input
+                id="company-slug-input"
+                type="text"
+                value={companySlug}
+                onChange={(e) => setCompanySlug(e.target.value)}
+                placeholder="e.g. stripe"
+                className={viewStyles.companyInput}
+                disabled={scanState === 'scanning'}
+              />
+            </div>
+
             <div className={viewStyles.cockpitHeader}>
               <div className={viewStyles.ledContainer}>
                 <span className={`${viewStyles.led} ${getLedClass()}`} />

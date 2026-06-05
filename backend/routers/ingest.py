@@ -19,7 +19,7 @@ router = APIRouter()
 logger = structlog.get_logger()
 
 class IngestRequest(BaseModel):
-    company_slug: Optional[str] = Field(default=None, pattern=r"^[a-zA-Z0-9-_]+$")
+    company_slug: Optional[str] = Field(default=None, pattern=r"^[a-z0-9-]+$")
 
 async def dump_logs_to_file(task_id: str):
     """
@@ -45,7 +45,7 @@ async def dump_logs_to_file(task_id: str):
     except Exception as e:
         logger.error("Failed to dump logs to file", filepath=filepath, error=str(e))
 
-async def run_ingestion_task(task_id: str, pool, config: Optional[dict]):
+async def run_ingestion_task(task_id: str, pool, config: Optional[dict], company_slug: Optional[str] = None):
     """
     Background task wrapper executing the parsing and ingestion logic.
     Supports timeout limits and triggers error propagation and logging.
@@ -61,6 +61,18 @@ async def run_ingestion_task(task_id: str, pool, config: Optional[dict]):
             run_full_ingestion(pool, config),
             timeout=3600.0
         )
+        if result.get("status") == "success":
+            try:
+                if company_slug:
+                    from backend.scripts.precompute_fingerprints import precompute_company_fingerprint
+                    await precompute_company_fingerprint(pool, company_slug)
+                else:
+                    from backend.scripts.precompute_fingerprints import precompute_all_fingerprints
+                    await precompute_all_fingerprints(pool)
+            except Exception as exc:
+                logger.error("Fingerprint precomputation failed after ingestion", task_id=task_id, error=str(exc))
+                result["fingerprint_precompute_error"] = "Fingerprint cache generation failed."
+
         logger.info("Background ingestion task completed successfully", task_id=task_id)
 
         # Enqueue completion event
@@ -181,7 +193,8 @@ async def start_ingestion(
         run_ingestion_task,
         task_id=task_id,
         pool=pool,
-        config=config
+        config=config,
+        company_slug=company_slug
     )
 
     return {"task_id": task_id}

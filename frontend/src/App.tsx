@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Routes, Route, useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { DashboardView } from './views/DashboardView';
 import { IngestionView } from './views/IngestionView';
 import { EvalsView } from './views/EvalsView';
 import { LedgerView } from './views/LedgerView';
 import { ProfileView } from './views/ProfileView';
+import { CompanyView } from './views/CompanyView';
 import './index.css';
 
 interface HealthData {
@@ -25,6 +26,7 @@ function App() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
+  const location = useLocation();
 
   useEffect(() => {
     const fetchHealth = () => {
@@ -74,6 +76,16 @@ function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [navigate]);
+
+  const isCompanyRoute = location.pathname.startsWith('/company/');
+
+  if (isCompanyRoute) {
+    return (
+      <Routes>
+        <Route path="/company/:companySlug" element={<CompanyView />} />
+      </Routes>
+    );
+  }
 
   return (
     <Layout health={health} loading={loading}>

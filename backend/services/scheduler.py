@@ -226,6 +226,13 @@ async def run_weekly_ingestion(app: FastAPI) -> None:
         summary = await run_full_ingestion(pool, config=None)
         source_counts = summary.get("source_counts", {})
 
+        if summary.get("status") == "success":
+            from backend.scripts.precompute_fingerprints import precompute_all_fingerprints
+            try:
+                await precompute_all_fingerprints(pool)
+            except Exception as pf_exc:
+                logger.error("Failed to run fingerprint precomputation in scheduler", error=str(pf_exc))
+
         async with pool.connection() as conn:
             corpus_size = await _count_corpus_size(conn)
             eval_accuracy = await _get_latest_eval_accuracy(conn)
