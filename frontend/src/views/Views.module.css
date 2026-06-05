@@ -451,3 +451,263 @@
   color: var(--text-secondary);
   font-weight: normal;
 }
+
+/* New telemetry and skill gap dashboard elements */
+.telemetryStrip {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  margin-bottom: 24px;
+}
+
+@media (min-width: 768px) {
+  .telemetryStrip {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: stretch;
+  }
+}
+
+.segmentTelemetry {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--border-hud);
+  padding: 12px;
+  background: hsla(240, 10%, 4%, 0.4);
+}
+
+.segmentTitle {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-primary);
+  border-bottom: 1px dashed var(--border-hud);
+  padding-bottom: 4px;
+}
+
+.telemetryMetrics {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.metricItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.metricLabel {
+  color: var(--text-secondary);
+}
+
+.metricValueMono {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--glow-cyan);
+}
+
+.distValueMono {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.deltaTag {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+.deltaPositive {
+  color: var(--glow-green);
+  background: hsla(145, 80%, 45%, 0.1);
+  border: 1px solid hsla(145, 80%, 45%, 0.2);
+}
+
+.deltaNegative {
+  color: var(--glow-magenta);
+  background: hsla(325, 100%, 55%, 0.1);
+  border: 1px solid hsla(325, 100%, 55%, 0.2);
+}
+
+.deltaZero {
+  color: var(--text-secondary);
+  background: hsla(0, 0%, 50%, 0.1);
+  border: 1px solid hsla(0, 0%, 50%, 0.2);
+}
+
+.segmentedSkillsGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  margin-bottom: 24px;
+}
+
+@media (min-width: 768px) {
+  .segmentedSkillsGrid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.skillColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.skillColumnTitle {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--glow-green);
+  border-bottom: 1px solid var(--border-hud);
+  padding-bottom: 6px;
+  text-transform: uppercase;
+}
+
+.skillList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skillItemRow {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: hsla(240, 10%, 4%, 0.6);
+  border: 1px solid var(--border-hud);
+  border-radius: 2px;
+  font-size: 0.8rem;
+  gap: 12px;
+}
+
+.skillRank {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-secondary);
+  width: 20px;
+}
+
+.skillName {
+  flex-grow: 1;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.skillFreq {
+  font-family: var(--font-mono);
+  color: var(--glow-cyan);
+}
+
+.alignBadge {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.mappedBadge {
+  color: var(--glow-green);
+  text-shadow: 0 0 6px hsla(145, 80%, 45%, 0.3);
+}
+
+.missingBadge {
+  color: var(--text-secondary);
+}
+
+.tableResponsive {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 24px;
+}
+
+.diffTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  text-align: left;
+}
+
+.diffTable th {
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  color: var(--text-secondary);
+  border-bottom: 2px solid var(--border-hud);
+  padding: 10px 12px;
+  text-transform: uppercase;
+}
+
+.diffTable td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-hud);
+  vertical-align: middle;
+}
+
+.missingSkillRow:hover {
+  background: hsla(325, 100%, 55%, 0.02);
+}
+
+.missingSkillName {
+  color: var(--glow-magenta) !important;
+  text-shadow: 0 0 8px hsla(325, 100%, 55%, 0.4);
+  font-weight: 700;
+}
+
+.freqMono {
+  font-family: var(--font-mono);
+  color: var(--glow-cyan);
+}
+
+.statusMissing {
+  color: var(--glow-magenta);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.noMissingSkills {
+  text-align: center;
+  padding: 24px !important;
+  color: var(--glow-green);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+.btnResolve {
+  background: transparent;
+  color: var(--glow-magenta);
+  border: 1px solid var(--glow-magenta);
+  border-radius: 2px;
+  padding: 4px 10px;
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 200ms ease;
+  white-space: nowrap;
+}
+
+.btnResolve:hover:not(:disabled) {
+  background: var(--glow-magenta);
+  color: var(--bg-cosmic);
+  box-shadow: 0 0 10px hsla(325, 100%, 55%, 0.4);
+}
+
+.btnResolve:disabled {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}

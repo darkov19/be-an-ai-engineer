@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, cleanup, waitFor, fireEvent, within } from '@testing-library/react';
 import { DashboardView } from './DashboardView';
 
 // Mock fetch globally
@@ -28,13 +28,43 @@ describe('DashboardView - Quality Gate Warning and Lock UI', () => {
             data: {
               geo_segments: {
                 us_eu_remote: {
+                  job_count: 120,
+                  top_skills: [
+                    { skill: 'Python', count: 80, frequency: 0.67 },
+                    { skill: 'FastAPI', count: 60, frequency: 0.50 },
+                    { skill: 'RAG', count: 40, frequency: 0.33 },
+                    { skill: 'pgvector', count: 30, frequency: 0.25 }
+                  ],
+                  experience_distribution: {
+                    no_minimum: 0.1,
+                    three_plus: 0.4,
+                    five_plus: 0.3,
+                    senior_only: 0.2
+                  },
+                  profile_fit_score: 0.65,
+                  profile_fit_delta: 0.12,
                   skill_gap: [
-                    { skill: 'RAG', market_frequency: 0.8 },
-                    { skill: 'pgvector', market_frequency: 0.7 }
+                    { skill: 'RAG', market_frequency: 0.33, in_profile: false },
+                    { skill: 'pgvector', market_frequency: 0.25, in_profile: false }
                   ]
                 },
                 india_ai_product: {
-                  skill_gap: []
+                  job_count: 80,
+                  top_skills: [
+                    { skill: 'Python', count: 50, frequency: 0.625 },
+                    { skill: 'LLMs', count: 40, frequency: 0.50 }
+                  ],
+                  experience_distribution: {
+                    no_minimum: 0.15,
+                    three_plus: 0.35,
+                    five_plus: 0.30,
+                    senior_only: 0.20
+                  },
+                  profile_fit_score: 0.55,
+                  profile_fit_delta: -0.03,
+                  skill_gap: [
+                    { skill: 'LLMs', market_frequency: 0.50, in_profile: false }
+                  ]
                 }
               }
             }
@@ -179,7 +209,8 @@ describe('DashboardView - Quality Gate Warning and Lock UI', () => {
 
     const ragNode = screen.getByRole('button', { name: /Skill: RAG\. Status: anomaly/i });
     fireEvent.mouseEnter(ragNode);
-    fireEvent.click(await screen.findByRole('button', { name: /\[RESOLVE ANOMALY\]/i }));
+    const tooltip = await screen.findByRole('tooltip');
+    fireEvent.click(within(tooltip).getByRole('button', { name: /\[RESOLVE ANOMALY\]/i }));
 
     expect(screen.getAllByText(/RAG/i).length).toBeGreaterThan(0);
     expect(screen.getByLabelText(/ENTER GIT COMMIT HASH/i)).toBeInTheDocument();
@@ -210,5 +241,208 @@ describe('DashboardView - Quality Gate Warning and Lock UI', () => {
 
     expect(screen.getAllByText(/PGVECTOR/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Accepted active directive to resolve anomaly: pgvector/i)).toBeInTheDocument();
+  });
+});
+
+describe('DashboardView - Geo-Segmented Market Analysis & Skill-Gap Diff', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-06-05T12:00:00Z'));
+    mockFetch.mockReset();
+    mockFetch.mockImplementation((url) => {
+      if (url === '/api/v1/profiles/current') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            id: 1,
+            skills: ['Python', 'FastAPI'],
+            updated_at: '2026-05-01T12:00:00Z', // stale profile
+          }),
+        });
+      }
+      if (url === '/api/v1/jobs/analytics') {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            data: {
+              geo_segments: {
+                us_eu_remote: {
+                  job_count: 120,
+                  top_skills: [
+                    { skill: 'Python', count: 80, frequency: 0.67 },
+                    { skill: 'FastAPI', count: 60, frequency: 0.50 },
+                    { skill: 'RAG', count: 40, frequency: 0.33 },
+                    { skill: 'pgvector', count: 30, frequency: 0.25 }
+                  ],
+                  experience_distribution: {
+                    no_minimum: 0.1,
+                    three_plus: 0.4,
+                    five_plus: 0.3,
+                    senior_only: 0.2
+                  },
+                  profile_fit_score: 0.65,
+                  profile_fit_delta: 0.12,
+                  skill_gap: [
+                    { skill: 'RAG', market_frequency: 0.33, in_profile: false },
+                    { skill: 'pgvector', market_frequency: 0.25, in_profile: false }
+                  ]
+                },
+                india_ai_product: {
+                  job_count: 80,
+                  top_skills: [
+                    { skill: 'Python', count: 50, frequency: 0.625 },
+                    { skill: 'LLMs', count: 40, frequency: 0.50 }
+                  ],
+                  experience_distribution: {
+                    no_minimum: 0.15,
+                    three_plus: 0.35,
+                    five_plus: 0.30,
+                    senior_only: 0.20
+                  },
+                  profile_fit_score: 0.55,
+                  profile_fit_delta: -0.03,
+                  skill_gap: [
+                    { skill: 'LLMs', market_frequency: 0.50, in_profile: false }
+                  ]
+                }
+              }
+            }
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ ok: true }),
+      });
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+  });
+
+  it('renders experience distribution strip and fit score delta with correct formatting and colors', async () => {
+    const healthData = {
+      data: {
+        status: 'healthy',
+        database: 'connected',
+        timestamp: '2026-06-04T12:00:00Z',
+        corpus_size: 150,
+        eval_accuracy: 0.85,
+        system_state: 'nominal',
+        warning_mode: false,
+      },
+    };
+
+    render(<DashboardView health={healthData} loading={false} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/jobs/analytics');
+    });
+
+    expect(screen.getByText(/MARKET EXPERIENCE & PROFILE FIT TELEMETRY/i)).toBeInTheDocument();
+    expect(screen.getByText(/US\/EU REMOTE SEGMENT/i)).toBeInTheDocument();
+    expect(screen.getByText(/INDIA AI PRODUCT SEGMENT/i)).toBeInTheDocument();
+
+    expect(screen.getByText(/No Min: 10% \| 3\+ Yrs: 40% \| 5\+ Yrs: 30% \| Senior: 20%/i)).toBeInTheDocument();
+    expect(screen.getByText(/No Min: 15% \| 3\+ Yrs: 35% \| 5\+ Yrs: 30% \| Senior: 20%/i)).toBeInTheDocument();
+
+    expect(screen.getByText('65%')).toBeInTheDocument();
+    const positiveDelta = screen.getByText('+12%');
+    expect(positiveDelta).toBeInTheDocument();
+    expect(positiveDelta.className).toContain('deltaPositive');
+    expect(screen.getByText('55%')).toBeInTheDocument();
+    const negativeDelta = screen.getByText('-3%');
+    expect(negativeDelta).toBeInTheDocument();
+    expect(negativeDelta.className).toContain('deltaNegative');
+  });
+
+  it('renders side-by-side columns with top-10 skills indicating mapped vs missing', async () => {
+    const healthData = {
+      data: {
+        status: 'healthy',
+        database: 'connected',
+        timestamp: '2026-06-04T12:00:00Z',
+        corpus_size: 150,
+        eval_accuracy: 0.85,
+        system_state: 'nominal',
+        warning_mode: false,
+      },
+    };
+
+    render(<DashboardView health={healthData} loading={false} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/jobs/analytics');
+    });
+
+    expect(screen.getAllByText('FastAPI').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('67%').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('50%').length).toBeGreaterThan(0);
+
+    const mappedBadges = await screen.findAllByText('[MAPPED]');
+    expect(mappedBadges.length).toBeGreaterThan(0);
+
+    const missingBadges = await screen.findAllByText('[MISSING]');
+    expect(missingBadges.length).toBeGreaterThan(0);
+  });
+
+  it('renders skill-gap table and handles RESOLVE ANOMALY action click', async () => {
+    const healthData = {
+      data: {
+        status: 'healthy',
+        database: 'connected',
+        timestamp: '2026-06-04T12:00:00Z',
+        corpus_size: 150,
+        eval_accuracy: 0.85,
+        system_state: 'nominal',
+        warning_mode: false,
+      },
+    };
+
+    render(<DashboardView health={healthData} loading={false} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/jobs/analytics');
+    });
+
+    expect(screen.getByText(/COGNITIVE SKILL GAP DIFFERENTIAL/i)).toBeInTheDocument();
+    expect(screen.getAllByText('LLMs').length).toBeGreaterThan(0);
+
+    let ragRow: HTMLTableRowElement | null | undefined;
+    await waitFor(() => {
+      const ragElement = screen.getAllByText('RAG').find(el => el.tagName === 'TD');
+      ragRow = ragElement?.closest('tr');
+      expect(ragRow).toBeInTheDocument();
+    });
+
+    const resolveBtn = within(ragRow!).getByRole('button', { name: /Resolve anomaly for RAG in US\/EU Remote/i });
+    fireEvent.click(resolveBtn);
+
+    expect(screen.getByText(/Accepted active directive to resolve anomaly: RAG/i)).toBeInTheDocument();
+  });
+
+  it('displays freshness warning banner when candidate profile is stale', async () => {
+    const healthData = {
+      data: {
+        status: 'healthy',
+        database: 'connected',
+        timestamp: '2026-06-04T12:00:00Z',
+        corpus_size: 150,
+        eval_accuracy: 0.85,
+        system_state: 'nominal',
+        warning_mode: false,
+      },
+    };
+
+    render(<DashboardView health={healthData} loading={false} />);
+
+    await waitFor(() => {
+      expect(mockFetch).toHaveBeenCalledWith('/api/v1/profiles/current');
+    });
+
+    const warningBanner = screen.getByText(/Profile is stale \(last updated 21\+ days ago\)\. Refresh recommended before the diff can be trusted\./i);
+    expect(warningBanner).toBeInTheDocument();
   });
 });

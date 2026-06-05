@@ -34,9 +34,34 @@ interface Directive {
   dateCommitted: string;
 }
 
+interface TopSkillItem {
+  skill?: string | null;
+  count?: number;
+  frequency?: number;
+}
+
+interface ExperienceDistribution {
+  no_minimum: number;
+  three_plus: number;
+  five_plus: number;
+  senior_only: number;
+}
+
+interface SkillGapItem {
+  skill?: string | null;
+  market_frequency?: number;
+  in_profile?: boolean;
+}
+
 interface AnalyticsSegment {
   job_count?: number;
-  skill_gap?: Array<{ skill?: string; market_frequency?: number }>;
+  top_skills?: TopSkillItem[];
+  co_occurrences?: Record<string, unknown>[];
+  salary_correlations?: Record<string, unknown>[];
+  experience_distribution?: ExperienceDistribution;
+  profile_fit_score?: number;
+  profile_fit_delta?: number;
+  skill_gap?: SkillGapItem[];
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading }) => {
@@ -44,6 +69,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
   const [profileSkills, setProfileSkills] = useState<string[]>([]);
   const [skillGaps, setSkillGaps] = useState<string[]>([]);
   const [telemetryPoints, setTelemetryPoints] = useState<number[]>([]);
+  const [geoSegments, setGeoSegments] = useState<Record<string, AnalyticsSegment> | null>(null);
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [analyticsStatus, setAnalyticsStatus] = useState<'loading' | 'ready' | 'error'>('loading');
 
   // State for active directives / commitments
   const [directives, setDirectives] = useState<Directive[]>([]);
@@ -105,6 +133,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
         }
       } catch (err) {
         console.error('Failed to fetch profile in dashboard:', err);
+      } finally {
+        setProfileLoaded(true);
       }
     };
     fetchProfile();
@@ -118,6 +148,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
         if (res.ok) {
           const data = await res.json();
           if (data?.data?.geo_segments) {
+            setGeoSegments(data.data.geo_segments);
             const gaps = new Set<string>();
             const telemetrySamples: number[] = [];
             Object.values(data.data.geo_segments as Record<string, AnalyticsSegment>).forEach((segmentData) => {
@@ -135,10 +166,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
             });
             setSkillGaps(Array.from(gaps));
             setTelemetryPoints(telemetrySamples.length > 0 ? telemetrySamples : [0]);
+            setAnalyticsStatus('ready');
+            return;
           }
         }
+        setAnalyticsStatus('error');
       } catch (err) {
         console.error('Failed to fetch jobs analytics:', err);
+        setAnalyticsStatus('error');
       }
     };
     fetchAnalytics();
@@ -274,6 +309,61 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
     }));
   };
 
+  const formatDelta = (delta: number) => {
+    const rounded = Math.round(delta * 100);
+    if (rounded > 0) return `+${rounded}%`;
+    if (rounded < 0) return `${rounded}%`;
+    return '0%';
+  };
+
+  const getDeltaClass = (delta: number) => {
+    const rounded = Math.round(delta * 100);
+    if (rounded > 0) return styles.deltaPositive;
+    if (rounded < 0) return styles.deltaNegative;
+    return styles.deltaZero;
+  };
+
+  const normalizeSkillName = (skillName: string | null | undefined) => (
+    typeof skillName === 'string' ? skillName.trim() : ''
+  );
+
+  const isSkillMapped = (skillName: string) => (
+    profileSkills.some(s => s.toLowerCase() === skillName.toLowerCase())
+  );
+
+  const formatFrequency = (frequency: number | null | undefined) => (
+    `${Math.round((typeof frequency === 'number' ? frequency : 0) * 100)}%`
+  );
+
+  const missingSkills: Array<{ skill: string; geography: string; frequency: number }> = [];
+  if (geoSegments && profileLoaded) {
+    const usRemoteGap = geoSegments.us_eu_remote?.skill_gap || [];
+    const indiaGap = geoSegments.india_ai_product?.skill_gap || [];
+
+    usRemoteGap.forEach((item) => {
+      const name = normalizeSkillName(item.skill);
+      if (name && item.in_profile !== true && !isSkillMapped(name)) {
+        missingSkills.push({
+          skill: name,
+          geography: 'US/EU Remote',
+          frequency: item.market_frequency || 0,
+        });
+      }
+    });
+
+    indiaGap.forEach((item) => {
+      const name = normalizeSkillName(item.skill);
+      if (name && item.in_profile !== true && !isSkillMapped(name)) {
+        missingSkills.push({
+          skill: name,
+          geography: 'India AI Product',
+          frequency: item.market_frequency || 0,
+        });
+      }
+    });
+  }
+  missingSkills.sort((a, b) => b.frequency - a.frequency);
+
   return (
     <div className={styles.dashboardContainer}>
       {isLocked && (
@@ -297,191 +387,373 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ health, loading })
       )}
 
       {!isLocked && showStaleWarning && (
-        <div className={styles.warningBanner}>
+        <div
+          className={styles.warningBanner}
+          id="profile-stale-warning"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           <span className={styles.anomalySymbol}>▲</span>
           <span className={styles.anomalyLabel}>
-            [WARNING] Profile is stale (last updated 21+ days ago). Refresh recommended.
+            [WARNING] Profile is stale (last updated 21+ days ago). Refresh recommended before the diff can be trusted.
           </span>
         </div>
       )}
 
       {!isLocked && (
-        <div className={styles.threeColumnGrid}>
-          {/* Left Column: Diagnostics and System info */}
-          <div className={styles.column}>
-            <ConsolePanel title="SYSTEM DIAGNOSTICS" glowColor="cyan">
-              {loading ? (
-                <div className={styles.scanningText}>SCANNING COGNITIVE CHANNELS...</div>
-              ) : (
-                <div className={styles.diagnosticsList} role="status" aria-live="polite" aria-atomic="true">
-                  <div className={styles.diagnosticItem}>
-                    <span className={styles.label}>COGNITIVE CORE STATUS:</span>
-                    <span className={`${styles.value} ${health?.data?.status === 'healthy' ? styles.green : styles.red}`}>
-                      {health?.data?.status === 'healthy' ? 'ONLINE' : 'OFFLINE'}
+        <>
+          {/* Experience Distribution Strip & Fit Score Delta */}
+          <ConsolePanel title="MARKET EXPERIENCE & PROFILE FIT TELEMETRY" glowColor="cyan">
+            <div className={styles.telemetryStrip} role="status" aria-live="polite" aria-atomic="true">
+              {/* Segment 1: US/EU Remote */}
+              <div className={styles.segmentTelemetry}>
+                <div className={styles.segmentTitle}>US/EU REMOTE SEGMENT</div>
+                <div className={styles.telemetryMetrics}>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>FIT SCORE:</span>
+                    <span className={styles.metricValueMono}>
+                      {geoSegments?.us_eu_remote?.profile_fit_score !== undefined ? `${Math.round(geoSegments.us_eu_remote.profile_fit_score * 100)}%` : '0%'}
                     </span>
+                    {geoSegments?.us_eu_remote?.profile_fit_delta !== undefined && (
+                      <span className={`${styles.deltaTag} ${getDeltaClass(geoSegments.us_eu_remote.profile_fit_delta)}`}>
+                        {formatDelta(geoSegments.us_eu_remote.profile_fit_delta)}
+                      </span>
+                    )}
                   </div>
-                  <div className={styles.diagnosticItem}>
-                    <span className={styles.label}>DATABASE CONNECTOR:</span>
-                    <span className={`${styles.value} ${health?.data?.database === 'connected' ? styles.green : styles.red}`}>
-                      {health?.data?.database?.toUpperCase() || 'UNKNOWN'}
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>SENIORITY DIST:</span>
+                    <span className={styles.distValueMono}>
+                      {geoSegments?.us_eu_remote?.experience_distribution ? (
+                        `No Min: ${Math.round((geoSegments.us_eu_remote.experience_distribution.no_minimum || 0) * 100)}% | ` +
+                        `3+ Yrs: ${Math.round((geoSegments.us_eu_remote.experience_distribution.three_plus || 0) * 100)}% | ` +
+                        `5+ Yrs: ${Math.round((geoSegments.us_eu_remote.experience_distribution.five_plus || 0) * 100)}% | ` +
+                        `Senior: ${Math.round((geoSegments.us_eu_remote.experience_distribution.senior_only || 0) * 100)}%`
+                      ) : 'Loading...'}
                     </span>
-                  </div>
-                  <div className={styles.diagnosticItem}>
-                    <span className={styles.label}>LOCAL TELEMETRY SYNC:</span>
-                    <span className={styles.valueMono}>{health?.data?.timestamp || 'N/A'}</span>
-                  </div>
-                </div>
-              )}
-            </ConsolePanel>
-
-            <ConsolePanel title="COGNITIVE IDENTITY" glowColor="purple">
-              <div className={styles.profileDetails}>
-                <div className={styles.profileHeader}>
-                  <div className={styles.profileAvatar}>AI</div>
-                  <div>
-                    <h3 className={styles.profileName}>DEVELOPER: DARKO</h3>
-                    <p className={styles.profileRole}>ROLE: APPLIED AI ARCHITECT</p>
-                  </div>
-                </div>
-                <div className={styles.profileInfoList}>
-                  <div className={styles.infoRow}>
-                    <span className={styles.infoLabel}>SENIORITY:</span>
-                    <span className={styles.infoValue}>SENIOR / STAFF</span>
-                  </div>
-                  <div className={styles.infoRow}>
-                    <span className={styles.infoLabel}>EXPERIENCE:</span>
-                    <span className={styles.infoValue}>5 YEARS</span>
-                  </div>
-                  <div className={styles.infoRow}>
-                    <span className={styles.infoLabel}>PROVEN SKILLS:</span>
-                    <span className={styles.infoValue}>{profileSkills.length} MAPPED</span>
                   </div>
                 </div>
               </div>
-            </ConsolePanel>
 
-            {health?.error && (
-              <ConsolePanel title="DIAGNOSTIC FAULT DETECTED" glowColor="magenta">
-                <div className={styles.diagnosticsList}>
-                  <div className={styles.diagnosticItem}>
-                    <span className={styles.label}>FAULT CODE:</span>
-                    <span className={`${styles.value} ${styles.red}`}>{health.code}</span>
+              {/* Segment 2: India AI Product */}
+              <div className={styles.segmentTelemetry}>
+                <div className={styles.segmentTitle}>INDIA AI PRODUCT SEGMENT</div>
+                <div className={styles.telemetryMetrics}>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>FIT SCORE:</span>
+                    <span className={styles.metricValueMono}>
+                      {geoSegments?.india_ai_product?.profile_fit_score !== undefined ? `${Math.round(geoSegments.india_ai_product.profile_fit_score * 100)}%` : '0%'}
+                    </span>
+                    {geoSegments?.india_ai_product?.profile_fit_delta !== undefined && (
+                      <span className={`${styles.deltaTag} ${getDeltaClass(geoSegments.india_ai_product.profile_fit_delta)}`}>
+                        {formatDelta(geoSegments.india_ai_product.profile_fit_delta)}
+                      </span>
+                    )}
                   </div>
-                  <div className={styles.diagnosticItem}>
-                    <span className={styles.label}>DETAILS:</span>
-                    <span className={`${styles.value} ${styles.red}`}>{health.detail}</span>
+                  <div className={styles.metricItem}>
+                    <span className={styles.metricLabel}>SENIORITY DIST:</span>
+                    <span className={styles.distValueMono}>
+                      {geoSegments?.india_ai_product?.experience_distribution ? (
+                        `No Min: ${Math.round((geoSegments.india_ai_product.experience_distribution.no_minimum || 0) * 100)}% | ` +
+                        `3+ Yrs: ${Math.round((geoSegments.india_ai_product.experience_distribution.three_plus || 0) * 100)}% | ` +
+                        `5+ Yrs: ${Math.round((geoSegments.india_ai_product.experience_distribution.five_plus || 0) * 100)}% | ` +
+                        `Senior: ${Math.round((geoSegments.india_ai_product.experience_distribution.senior_only || 0) * 100)}%`
+                      ) : 'Loading...'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </ConsolePanel>
+
+          {/* Side-by-Side Geo-Segmented Columns */}
+          <ConsolePanel title="GEO-SEGMENTED MARKET PENETRATION (TOP 10 SKILLS)" glowColor="green">
+            <div className={styles.segmentedSkillsGrid} aria-live="polite">
+              {/* Column 1: US/EU Remote */}
+              <div className={styles.skillColumn}>
+                <h3 className={styles.skillColumnTitle}>US/EU REMOTE</h3>
+                <div className={styles.skillList}>
+                  {geoSegments?.us_eu_remote?.top_skills?.slice(0, 10).map((skill, index) => {
+                    const skillName = normalizeSkillName(skill.skill);
+                    if (!skillName) return null;
+                    const isMapped = profileLoaded && isSkillMapped(skillName);
+                    return (
+                      <div key={skillName} className={styles.skillItemRow}>
+                        <span className={styles.skillRank}>{index + 1}</span>
+                        <span className={styles.skillName}>{skillName}</span>
+                        <span className={styles.skillFreq}>{formatFrequency(skill.frequency)}</span>
+                        <span className={`${styles.alignBadge} ${isMapped ? styles.mappedBadge : styles.missingBadge}`}>
+                          {isMapped ? '[MAPPED]' : '[MISSING]'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Column 2: India AI Product */}
+              <div className={styles.skillColumn}>
+                <h3 className={styles.skillColumnTitle}>INDIA AI PRODUCT</h3>
+                <div className={styles.skillList}>
+                  {geoSegments?.india_ai_product?.top_skills?.slice(0, 10).map((skill, index) => {
+                    const skillName = normalizeSkillName(skill.skill);
+                    if (!skillName) return null;
+                    const isMapped = profileLoaded && isSkillMapped(skillName);
+                    return (
+                      <div key={skillName} className={styles.skillItemRow}>
+                        <span className={styles.skillRank}>{index + 1}</span>
+                        <span className={styles.skillName}>{skillName}</span>
+                        <span className={styles.skillFreq}>{formatFrequency(skill.frequency)}</span>
+                        <span className={`${styles.alignBadge} ${isMapped ? styles.mappedBadge : styles.missingBadge}`}>
+                          {isMapped ? '[MAPPED]' : '[MISSING]'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </ConsolePanel>
+
+          {/* Actionable Skill-Gap Diff Table */}
+          <ConsolePanel title="COGNITIVE SKILL GAP DIFFERENTIAL" glowColor="magenta">
+            <div className={styles.tableResponsive} aria-live="polite" aria-atomic="false">
+              <table className={styles.diffTable}>
+                <thead>
+                  <tr>
+                    <th scope="col">SKILL NAME</th>
+                    <th scope="col">GEOGRAPHY</th>
+                    <th scope="col">MARKET FREQUENCY</th>
+                    <th scope="col">STATUS</th>
+                    <th scope="col">ACTION</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analyticsStatus === 'loading' || !profileLoaded ? (
+                    <tr>
+                      <td colSpan={5} className={styles.noMissingSkills}>
+                        [LOADING] CALIBRATING COGNITIVE SKILL GAP DIFFERENTIAL.
+                      </td>
+                    </tr>
+                  ) : analyticsStatus === 'error' ? (
+                    <tr>
+                      <td colSpan={5} className={styles.noMissingSkills}>
+                        [WARN] MARKET ANALYTICS UNAVAILABLE. SKILL GAP DIFFERENTIAL CANNOT BE VERIFIED.
+                      </td>
+                    </tr>
+                  ) : missingSkills.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className={styles.noMissingSkills}>
+                        [OK] ALL COGNITIVE PATHWAY SKILLS MAPPED. NO ANOMALIES DETECTED.
+                      </td>
+                    </tr>
+                  ) : (
+                    missingSkills.map((item) => {
+                      const isResolving = directives.some(
+                        (d) => d.skill.toLowerCase() === item.skill.toLowerCase()
+                      );
+                      return (
+                        <tr key={`${item.geography}-${item.skill}`} className={styles.missingSkillRow}>
+                          <td className={styles.missingSkillName}>{item.skill}</td>
+                          <td>{item.geography}</td>
+                          <td className={styles.freqMono}>{Math.round(item.frequency * 100)}%</td>
+                          <td className={styles.statusMissing}>MISSING</td>
+                          <td>
+                            <button
+                              onClick={() => handleResolveAnomaly(item.skill)}
+                              disabled={isResolving}
+                              className={styles.btnResolve}
+                              aria-label={`Resolve anomaly for ${item.skill} in ${item.geography}`}
+                            >
+                              {isResolving ? '[RESOLVING...]' : '[RESOLVE ANOMALY]'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </ConsolePanel>
+
+          <div className={styles.threeColumnGrid}>
+            {/* Left Column: Diagnostics and System info */}
+            <div className={styles.column}>
+              <ConsolePanel title="SYSTEM DIAGNOSTICS" glowColor="cyan">
+                {loading ? (
+                  <div className={styles.scanningText}>SCANNING COGNITIVE CHANNELS...</div>
+                ) : (
+                  <div className={styles.diagnosticsList} role="status" aria-live="polite" aria-atomic="true">
+                    <div className={styles.diagnosticItem}>
+                      <span className={styles.label}>COGNITIVE CORE STATUS:</span>
+                      <span className={`${styles.value} ${health?.data?.status === 'healthy' ? styles.green : styles.red}`}>
+                        {health?.data?.status === 'healthy' ? 'ONLINE' : 'OFFLINE'}
+                      </span>
+                    </div>
+                    <div className={styles.diagnosticItem}>
+                      <span className={styles.label}>DATABASE CONNECTOR:</span>
+                      <span className={`${styles.value} ${health?.data?.database === 'connected' ? styles.green : styles.red}`}>
+                        {health?.data?.database?.toUpperCase() || 'UNKNOWN'}
+                      </span>
+                    </div>
+                    <div className={styles.diagnosticItem}>
+                      <span className={styles.label}>LOCAL TELEMETRY SYNC:</span>
+                      <span className={styles.valueMono}>{health?.data?.timestamp || 'N/A'}</span>
+                    </div>
+                  </div>
+                )}
+              </ConsolePanel>
+
+              <ConsolePanel title="COGNITIVE IDENTITY" glowColor="purple">
+                <div className={styles.profileDetails}>
+                  <div className={styles.profileHeader}>
+                    <div className={styles.profileAvatar}>AI</div>
+                    <div>
+                      <h3 className={styles.profileName}>DEVELOPER: DARKO</h3>
+                      <p className={styles.profileRole}>ROLE: APPLIED AI ARCHITECT</p>
+                    </div>
+                  </div>
+                  <div className={styles.profileInfoList}>
+                    <div className={styles.infoRow}>
+                      <span className={styles.infoLabel}>SENIORITY:</span>
+                      <span className={styles.infoValue}>SENIOR / STAFF</span>
+                    </div>
+                    <div className={styles.infoRow}>
+                      <span className={styles.infoLabel}>EXPERIENCE:</span>
+                      <span className={styles.infoValue}>5 YEARS</span>
+                    </div>
+                    <div className={styles.infoRow}>
+                      <span className={styles.infoLabel}>PROVEN SKILLS:</span>
+                      <span className={styles.infoValue}>{profileSkills.length} MAPPED</span>
+                    </div>
                   </div>
                 </div>
               </ConsolePanel>
-            )}
-          </div>
 
-          {/* Central Column: Brain Mesh visualizer and telemetry charts */}
-          <div className={styles.centerColumn}>
-            <ConsolePanel title="COGNITIVE SKILL NODE DIAGNOSTICS" glowColor="cyan">
-              <BrainVisualizer
-                profileSkills={profileSkills}
-                skillGaps={skillGaps}
-                onResolveAnomaly={handleResolveAnomaly}
-                activeOrders={directives.map((d) => d.skill)}
-              />
-            </ConsolePanel>
-
-            <TelemetryChart status={chartStatus} telemetryPoints={telemetryPoints} />
-
-            <ConsolePanel title="SYSTEM TERMINAL LOGS" glowColor="purple">
-              <div className={styles.logsConsole} aria-live="polite">
-                {terminalLogs.map((line, index) => {
-                  const isErr = line.includes('[WARN]') || line.includes('[SAVE_ERR') || line.includes('stale');
-                  const isSuccess = line.includes('[OK]') || line.includes('SUCCESS');
-                  return (
-                    <div
-                      key={index}
-                      className={`${styles.logLine} ${
-                        isErr ? styles.red : isSuccess ? styles.green : ''
-                      }`}
-                    >
-                      {line}
+              {health?.error && (
+                <ConsolePanel title="DIAGNOSTIC FAULT DETECTED" glowColor="magenta">
+                  <div className={styles.diagnosticsList}>
+                    <div className={styles.diagnosticItem}>
+                      <span className={styles.label}>FAULT CODE:</span>
+                      <span className={`${styles.value} ${styles.red}`}>{health.code}</span>
                     </div>
-                  );
-                })}
-                <div ref={logsEndRef} />
-              </div>
-            </ConsolePanel>
-          </div>
-
-          {/* Right Column: Active directives commitments */}
-          <div className={styles.column}>
-            <ConsolePanel title="ACTIVE PATHWAY DIRECTIVES" glowColor="magenta">
-              <div className={styles.directivesList}>
-                {directives.length === 0 ? (
-                  <div className={styles.noDirectives}>
-                    <div className={styles.noDirectivesIcon}>▲</div>
-                    <div className={styles.noDirectivesText}>
-                      NO ACTIVE DIRECTIVES LOADED
-                      <p style={{ fontSize: '0.7rem', marginTop: '6px', color: 'var(--text-secondary)' }}>
-                        Hover over any pulsing warning anomaly on the brain skill node visualizer and click <strong>[RESOLVE ANOMALY]</strong> to accept its career pathway upgrade directive.
-                      </p>
+                    <div className={styles.diagnosticItem}>
+                      <span className={styles.label}>DETAILS:</span>
+                      <span className={`${styles.value} ${styles.red}`}>{health.detail}</span>
                     </div>
                   </div>
-                ) : (
-                  directives.map((directive) => {
-                    const isPending = directive.status === 'pending';
+                </ConsolePanel>
+              )}
+            </div>
+
+            {/* Central Column: Brain Mesh visualizer and telemetry charts */}
+            <div className={styles.centerColumn}>
+              <ConsolePanel title="COGNITIVE SKILL NODE DIAGNOSTICS" glowColor="cyan">
+                <BrainVisualizer
+                  profileSkills={profileSkills}
+                  skillGaps={skillGaps}
+                  onResolveAnomaly={handleResolveAnomaly}
+                  activeOrders={directives.map((d) => d.skill)}
+                />
+              </ConsolePanel>
+
+              <TelemetryChart status={chartStatus} telemetryPoints={telemetryPoints} />
+
+              <ConsolePanel title="SYSTEM TERMINAL LOGS" glowColor="purple">
+                <div className={styles.logsConsole} aria-live="polite">
+                  {terminalLogs.map((line, index) => {
+                    const isErr = line.includes('[WARN]') || line.includes('[SAVE_ERR') || line.includes('stale');
+                    const isSuccess = line.includes('[OK]') || line.includes('SUCCESS');
                     return (
                       <div
-                        key={directive.skill}
-                        className={styles.directiveCard}
-                        data-status={directive.status}
+                        key={index}
+                        className={`${styles.logLine} ${
+                          isErr ? styles.red : isSuccess ? styles.green : ''
+                        }`}
                       >
-                        <div className={styles.directiveHeader}>
-                          <span className={styles.directiveSkill}>{directive.skill.toUpperCase()}</span>
-                          <span className={styles.directiveDate}>{directive.dateCommitted}</span>
-                        </div>
-                        <p className={styles.directiveDesc}>{directive.description}</p>
-
-                        {isPending ? (
-                          <div className={styles.linkerForm}>
-                            <label
-                              htmlFor={`commit-${directive.skill}`}
-                              style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}
-                            >
-                              ENTER GIT COMMIT HASH:
-                            </label>
-                            <div className={styles.linkerInputWrapper}>
-                              <input
-                                id={`commit-${directive.skill}`}
-                                type="text"
-                                maxLength={10}
-                                placeholder="e.g. e4a5b2c"
-                                value={commitInputs[directive.skill] || ''}
-                                onChange={(e) => handleInputChange(directive.skill, e.target.value)}
-                                className={styles.linkerInput}
-                              />
-                              <button
-                                onClick={() => handleLinkCommit(directive.skill)}
-                                disabled={!commitInputs[directive.skill]?.trim()}
-                                className={styles.btnLink}
-                              >
-                                LINK COMMIT
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className={styles.verifiedBadge}>
-                            <span>✓ PATHWAY CLEAR</span>
-                            <span className={styles.verifiedCommit}>
-                              [COMMIT: {directive.commitHash}]
-                            </span>
-                          </div>
-                        )}
+                        {line}
                       </div>
                     );
-                  })
-                )}
-              </div>
-            </ConsolePanel>
+                  })}
+                  <div ref={logsEndRef} />
+                </div>
+              </ConsolePanel>
+            </div>
+
+            {/* Right Column: Active directives commitments */}
+            <div className={styles.column}>
+              <ConsolePanel title="ACTIVE PATHWAY DIRECTIVES" glowColor="magenta">
+                <div className={styles.directivesList}>
+                  {directives.length === 0 ? (
+                    <div className={styles.noDirectives}>
+                      <div className={styles.noDirectivesIcon}>▲</div>
+                      <div className={styles.noDirectivesText}>
+                        NO ACTIVE DIRECTIVES LOADED
+                        <p style={{ fontSize: '0.7rem', marginTop: '6px', color: 'var(--text-secondary)' }}>
+                          Hover over any pulsing warning anomaly on the brain skill node visualizer and click <strong>[RESOLVE ANOMALY]</strong> to accept its career pathway upgrade directive.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    directives.map((directive) => {
+                      const isPending = directive.status === 'pending';
+                      return (
+                        <div
+                          key={directive.skill}
+                          className={styles.directiveCard}
+                          data-status={directive.status}
+                        >
+                          <div className={styles.directiveHeader}>
+                            <span className={styles.directiveSkill}>{directive.skill.toUpperCase()}</span>
+                            <span className={styles.directiveDate}>{directive.dateCommitted}</span>
+                          </div>
+                          <p className={styles.directiveDesc}>{directive.description}</p>
+
+                          {isPending ? (
+                            <div className={styles.linkerForm}>
+                              <label
+                                htmlFor={`commit-${directive.skill}`}
+                                style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}
+                              >
+                                ENTER GIT COMMIT HASH:
+                              </label>
+                              <div className={styles.linkerInputWrapper}>
+                                <input
+                                  id={`commit-${directive.skill}`}
+                                  type="text"
+                                  maxLength={10}
+                                  placeholder="e.g. e4a5b2c"
+                                  value={commitInputs[directive.skill] || ''}
+                                  onChange={(e) => handleInputChange(directive.skill, e.target.value)}
+                                  className={styles.linkerInput}
+                                />
+                                <button
+                                  onClick={() => handleLinkCommit(directive.skill)}
+                                  disabled={!commitInputs[directive.skill]?.trim()}
+                                  className={styles.btnLink}
+                                >
+                                  LINK COMMIT
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className={styles.verifiedBadge}>
+                              <span>✓ PATHWAY CLEAR</span>
+                              <span className={styles.verifiedCommit}>
+                                [COMMIT: {directive.commitHash}]
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </ConsolePanel>
+            </div>
           </div>
-        </div>
+        </>
       )}
     </div>
   );
