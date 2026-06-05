@@ -129,6 +129,31 @@ Gemini 3.5 Flash (Medium)
 
 ### Debug Log References
 
+- Story implementation added precomputed company fingerprint persistence, static fallback generation, and interview demo routing. Review patches later tightened generated HTML escaping, slug validation, route encoding, offline fallback behavior, and TanStack Query usage.
+
 ### Completion Notes List
 
+- Added `V009__add_company_fingerprints.sql` for cached company stack fingerprint records.
+- Implemented backend fingerprint generation and static fallback HTML writing in `backend/services/fingerprinter.py`.
+- Added `backend/scripts/precompute_fingerprints.py` and wired successful scheduled/on-demand ingestion to precompute cached fingerprints.
+- Added `GET /api/v1/company/{company_slug}` with strict slug validation, parameterized lookup, generic client errors, and no hot-path LLM work.
+- Added React `/company/:companySlug` route and `CompanyView` screen-share layout with demo-close behavior.
+- Updated ingest timeout fallback to load cached fingerprint HTML when present or fall back to `/company/{slug}?demo=true`.
+- Added backend and frontend tests covering service generation, static write safety, company endpoint behavior, route rendering, demo close, invalid slugs, and fallback paths.
+
 ### File List
+
+- `backend/db/migrations/V009__add_company_fingerprints.sql`
+- `backend/services/fingerprinter.py`
+- `backend/scripts/precompute_fingerprints.py`
+- `backend/services/scheduler.py`
+- `backend/routers/jobs.py`
+- `backend/routers/ingest.py`
+- `backend/tests/services/test_fingerprinter.py`
+- `backend/tests/routers/test_company.py`
+- `backend/tests/routers/test_ingest.py`
+- `frontend/src/App.tsx`
+- `frontend/src/views/CompanyView.tsx`
+- `frontend/src/views/CompanyView.module.css`
+- `frontend/src/views/CompanyView.test.tsx`
+- `frontend/src/views/IngestionView.tsx`

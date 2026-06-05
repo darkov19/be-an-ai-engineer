@@ -574,16 +574,18 @@ The developer can define weekly job application targets and learning goals, logg
 ### Story 6.1: Database Ledger Schema and REST Endpoints
 
 As a developer,
-I want a database migration `V004__add_ledger.sql` that defines tables `commitments` and `actions` along with backend endpoints to CRUD commitments,
+I want a database migration `V011__add_ledger.sql` that defines tables `commitments` and `actions` along with backend endpoints to CRUD commitments,
 So that my weekly career goals and progress records are persisted.
 
 **Acceptance Criteria:**
 
-**Given** a database migration file `backend/db/migrations/V004__add_ledger.sql`
+**Given** a database migration file `backend/db/migrations/V011__add_ledger.sql`
 **When** migrations are run
 **Then** tables `commitments` and `actions` are created
 **And** `backend/routers/ledger.py` exposes REST endpoints `GET /api/v1/ledger`, `POST /api/v1/ledger/commitments`, and `PUT /api/v1/ledger/commitments/{id}` (to link a commit or verify an action)
 **And** Pydantic schemas validate that commitments contain category (e.g. `applications`, `build`, `posts`), target count, target date, and status
+**And** the schema follows the ledger evidence model in `docs/ledger-evidence-model.md`, including public/private field boundaries and evidence-link validation rules
+**And** API, React, static report, and public Loop B rendering tests cover HTML-like or malicious accountability text according to `docs/epic-6-quality-checklist.md`
 
 ### Story 6.2: Interactive Accountability Ledger & Git Linker
 
@@ -599,6 +601,7 @@ So that I can verify my progress with hard evidence.
 **And** unassigned goals display in warning crimson with a pulsing alert dot
 **And** clicking `[LINK COMMIT]` opens a small toggle panel to paste a Git commit hash or enter application details
 **And** submitting a valid hash triggers a loading animation that updates the row to a mint green verified state with status `✓ [PATHWAY VERIFIED]`
+**And** ledger-specific UI and state are isolated in dedicated components/hooks rather than expanding unrelated analytics, brain visualizer, or market-diff logic in `DashboardView.tsx`
 
 ### Story 6.3: Visual Alerts for Overdue Commitments
 
@@ -613,6 +616,7 @@ So that I cannot avoid or hide from my missed commitments.
 **Then** the system checks for goals where status is uncompleted and target date is older than 7 days
 **And** if a commitment has been missed for 2 or more consecutive weeks, the ledger row is styled in crimson and pinned to the top of the dashboard
 **And** a soft warning nudge displays a button: `▲ [ACTIVATE 15-MIN FALLBACK PIVOT]` to quickly resolve the gap
+**And** dashboard integration reuses the component-scoped ledger surface from Story 6.2 and preserves existing live-region, reduced-motion, and keyboard-navigation behavior
 
 ### Story 6.4: Public Loop B Progress Logs
 
@@ -627,3 +631,4 @@ So that hiring managers can verify my consistent job-search activity in a 90-sec
 **Then** the UI renders a publicly accessible log of all Loop B weekly metrics (applications, interviews, voice notes, LinkedIn posts) loaded from `loop-b-log.md` or a database
 **And** a link is provided to open `loop-b-log.md` directly in the GitHub repository
 **And** each weekly row includes links to public commits or LinkedIn posts, proving consistent build-in-public progression.
+**And** public Loop B output escapes user-entered text, validates evidence URLs before linking them, renders explicit empty states, and remains usable without backend API access
